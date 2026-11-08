@@ -1,10 +1,14 @@
-# CHANGELOG — {{PROJECT_NAME}}
+# CHANGELOG — 2026_line1thon
 
 > 소유자: docs | 형식: [Keep a Changelog](https://keepachangelog.com/ko/) 축약. 최신이 위.
 
 ## [Unreleased]
 
 ### Added
+- 2026-11-08 T-01 백엔드 테스트 하네스(커밋 43a6acd, 브랜치 `feat/T-01-backend-harness`) — pytest 설정, `GET /api/v1/health` 헬스 엔드포인트(`app/api/health.py`), `FakePracticeAI`와 `PracticeAI` 포트(`app/ai_client/`), import 경계·헬스·AI 클라이언트 팩토리 테스트(`tests/`), `.env.example`, `requirements*.txt`
+- 2026-11-08 `.github/workflows/ci.yml` — `dev`·`main` 대상 PR에서 pytest 실행(Fake AI). 작성만 됨, GitHub 실제 실행은 원격 미연결로 미검증
+- 2026-11-08 docs/CodingRules.md "검증된 명령어"에 backend 가상환경·설치·테스트·dev 서버·헬스 확인 5행 추가(T-01 실측)
+- 2026-11-08 기획·설계 문서와 저장소 기본 설정 추가(커밋 5070035) — docs/PRD.md, Architecture.md, DECISIONS.md, Tasks.md, adr/0001~0014, `.editorconfig`, `.gitattributes`, `.gitignore`
 - 2026-10-27 Claude 전용 스킬 `.claude/skills/cli-delegate/SKILL.md` — Codex·안티그래비티에 작업을 넘기는 CLI 위임 절차(프롬프트는 파일·stdin으로 전달)
 - 2026-10-27 AGENTS.md "다른 도구 세션과의 핸드오프" 절 — `.artifacts/handoff/{작업ID}/{실행ID}/`의 prompt.md·report.md 규칙, 메인 오케스트레이터는 Claude Code 세션임을 명시
 - 2026-10-27 `.codex/DEVELOPMENT.md`, `.codex/FRONTEND.md`(Codex 개발 보조·UI 지침), `.codex/tests/adapters.test.cjs`(연결 파일·훅 배선 검사)
@@ -21,7 +25,7 @@
 - 2026-10-27 implementer·QA 보고 템플릿에 "남긴 화면" 행 추가
 - 2026-10-27 AGENTS.md 검증 루프에 "화면 흐름 회귀" 행 — 웹 UI의 PRD 핵심 사용자 흐름은 E2E 회귀 테스트를 Red-First로 두고, 세션 중 실물 확인과 서로 대신하지 않음(러너를 쓰지 않으면 사유를 Architecture에 기록)
 - 2026-10-27 docs/DefinitionOfDone.md에 웹 UI E2E 회귀 항목 추가
-- {{DATE}} 프로젝트 초기화 (start_coding 템플릿)
+- 2026-11-08 프로젝트 초기화 (start_coding 템플릿) — 날짜는 최초 커밋 5070035 기준
 
 ### Changed
 - 2026-10-27 역할 단일 원본을 `.agents/roles/*.role.md`로 통합 — `.claude/agents/*.md`와 `.codex/agents/*.toml`은 원본을 가리키는 연결 파일로 축소
