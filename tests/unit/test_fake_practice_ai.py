@@ -52,7 +52,7 @@ def test_opening_returns_turn_result_schema_and_passed_review():
     assert result.turn.ai_line.strip()
     assert result.turn.speaker_name.strip()
     assert 2 <= len(result.turn.choices) <= 4
-    assert result.turn.is_terminal is False
+    assert "is_terminal" not in result.turn.model_dump()
     assert result.turn.substituted is False
     assert result.review.passed is True
     assert result.review.reasons == []
@@ -122,7 +122,28 @@ def test_turn_result_rejects_choice_count_outside_2_to_4(choice_count):
                 "speaker_name": "예시 상대",
                 "choices": [make_choice(f"c{i}") for i in range(1, choice_count + 1)],
                 "hint": None,
-                "is_terminal": False,
                 "substituted": False,
             }
         )
+
+
+def test_turn_result_has_no_is_terminal_field():
+    # 종료 판정은 백엔드 규칙만 한다 (DECISIONS #81, ADR-0015) — AI 응답 DTO에 종료 플래그를 두지 않는다.
+    assert "is_terminal" not in TurnResult.model_fields
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_turn_result_ignores_is_terminal_from_ai(flag):
+    # 전환 허용 (DECISIONS #81): AI가 아직 is_terminal을 보내도 오류 없이 파싱하고 값은 남기지 않는다.
+    turn = TurnResult.model_validate(
+        {
+            "ai_line": "예시 대사",
+            "speaker_name": "예시 상대",
+            "choices": [make_choice("c1"), make_choice("c2")],
+            "hint": None,
+            "is_terminal": flag,
+            "substituted": False,
+        }
+    )
+
+    assert "is_terminal" not in turn.model_dump()

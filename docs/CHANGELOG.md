@@ -28,6 +28,7 @@
 - 2026-11-08 프로젝트 초기화 (start_coding 템플릿) — 날짜는 최초 커밋 5070035 기준
 
 ### Changed
+- 2026-11-09 T-85 `TurnResult.is_terminal` 삭제(브랜치 `feature/T-85-remove-is-terminal`, 미커밋) — `app/ai_client/ports.py`·`fake.py`에서 필드·인자 제거. 연습 종료 판정은 백엔드 규칙만 한다(DECISIONS #81, ADR-0015). AI가 `is_terminal`을 아직 보내도 오류 없이 파싱하고 값은 남기지 않음(전환 허용). `tests/unit/test_fake_practice_ai.py`에 "필드 없음"·"AI 값 무시(True/False)" 테스트 추가로 pytest 35 → 38 passed(QA 재실행 확인)
 - 2026-10-27 역할 단일 원본을 `.agents/roles/*.role.md`로 통합 — `.claude/agents/*.md`와 `.codex/agents/*.toml`은 원본을 가리키는 연결 파일로 축소
 - 2026-10-27 `.codex/EXECUTION.md`·`.agents/skills/vibe-mode/SKILL.md`·`docs/ToolPacks.md`·`docs/KitFeedback.md` 갱신, AGENTS.md 문서 소유권 표에 새 경로 반영
 - 2026-10-27 `.claude/hooks/contract-check.js` C5 플레이스홀더 검사가 `.claude/worktrees/`를 제외
