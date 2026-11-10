@@ -15,3 +15,4 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default_factory=_default_database_url)
     ai_client: Literal["http", "fake"] = "fake"
+    cookie_secure: bool = False
