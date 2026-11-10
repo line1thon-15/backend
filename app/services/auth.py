@@ -20,6 +20,12 @@ class AuthResult:
     has_children: bool
 
 
+@dataclass(frozen=True)
+class ChildAuthResult:
+    session_token: str
+    first_login: bool
+
+
 class AuthService:
     def __init__(self, repository: AuthRepository) -> None:
         self._repository = repository
@@ -77,6 +83,32 @@ class AuthService:
             guardian_id=guardian.guardian_id,
             session_token=token,
             has_children=self._repository.has_children(guardian.guardian_id),
+        )
+
+    def login_child(self, link_code: str, pin: str) -> ChildAuthResult:
+        normalized_link_code = link_code.strip().upper()
+        child = self._repository.find_child_by_link_code(normalized_link_code)
+
+        if child is None or not verify_password(pin, child.pin_hash):
+            raise AppError(
+                code="INVALID_CODE_OR_PIN",
+                status_code=401,
+                message="link code or PIN is incorrect",
+            )
+
+        token, token_hash = create_session_token()
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=SESSION_TTL_SECONDS
+        )
+        self._repository.create_child_session(
+            child_id=child.child_id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+        )
+
+        return ChildAuthResult(
+            session_token=token,
+            first_login=child.first_login,
         )
 
     def guardian_id_for_session_token(self, session_token: str) -> UUID | None:

@@ -15,6 +15,13 @@ class GuardianCredentials:
 
 
 @dataclass(frozen=True)
+class ChildLoginCredentials:
+    child_id: UUID
+    pin_hash: str
+    first_login: bool
+
+
+@dataclass(frozen=True)
 class ChildRegistrationRecord:
     child_id: UUID
     nickname: str
@@ -52,6 +59,18 @@ class AuthRepository(Protocol):
         token_hash: str,
         now: datetime,
     ) -> UUID | None: ...
+
+    def find_child_by_link_code(
+        self,
+        link_code: str,
+    ) -> ChildLoginCredentials | None: ...
+
+    def create_child_session(
+        self,
+        child_id: UUID,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> None: ...
 
     def has_children(self, guardian_id: UUID) -> bool: ...
 

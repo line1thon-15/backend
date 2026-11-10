@@ -5,8 +5,8 @@ from sqlalchemy import Engine, MetaData, Table, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import AuthSession, Guardian
-from app.services.ports import GuardianCredentials
+from app.db.models import AuthSession, Child, Guardian
+from app.services.ports import ChildLoginCredentials, GuardianCredentials
 
 
 class SqlAlchemyAuthRepository:
@@ -92,6 +92,38 @@ class SqlAlchemyAuthRepository:
         )
         with self._session_factory() as session:
             return session.scalar(query)
+
+    def find_child_by_link_code(
+        self,
+        link_code: str,
+    ) -> ChildLoginCredentials | None:
+        with self._session_factory() as session:
+            child = session.scalar(
+                select(Child).where(Child.link_code == link_code)
+            )
+            if child is None:
+                return None
+            return ChildLoginCredentials(
+                child_id=child.id,
+                pin_hash=child.pin_hash,
+                first_login=child.onboarding_completed_at is None,
+            )
+
+    def create_child_session(
+        self,
+        child_id: UUID,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> None:
+        with self._session_factory.begin() as session:
+            session.add(
+                AuthSession(
+                    token_hash=token_hash,
+                    subject_type="child",
+                    subject_id=child_id,
+                    expires_at=expires_at,
+                )
+            )
 
     def has_children(self, guardian_id: UUID) -> bool:
         if not inspect(self._engine).has_table("children"):
