@@ -51,6 +51,20 @@ class ChildListResponse(BaseModel):
     children: list[ChildSummaryResponse]
 
 
+class ChildPinResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pin: PinValue
+
+
+class OkResponse(BaseModel):
+    ok: bool
+
+
+class ChildLinkCodeResponse(BaseModel):
+    link_code: str
+
+
 @router.post(
     "/children",
     status_code=status.HTTP_201_CREATED,
@@ -95,3 +109,39 @@ def list_children(
             for child in children
         ]
     )
+
+
+@router.post(
+    "/children/{child_id}/pin-reset",
+    response_model=OkResponse,
+)
+def reset_child_pin(
+    child_id: UUID,
+    payload: ChildPinResetRequest,
+    request: Request,
+    guardian_id: UUID = Depends(require_guardian_id),
+) -> OkResponse:
+    service: ChildrenService = request.app.state.children_service
+    service.reset_child_pin(
+        guardian_id=guardian_id,
+        child_id=child_id,
+        pin=payload.pin,
+    )
+    return OkResponse(ok=True)
+
+
+@router.post(
+    "/children/{child_id}/link-code",
+    response_model=ChildLinkCodeResponse,
+)
+def reissue_child_link_code(
+    child_id: UUID,
+    request: Request,
+    guardian_id: UUID = Depends(require_guardian_id),
+) -> ChildLinkCodeResponse:
+    service: ChildrenService = request.app.state.children_service
+    link_code = service.reissue_child_link_code(
+        guardian_id=guardian_id,
+        child_id=child_id,
+    )
+    return ChildLinkCodeResponse(link_code=link_code)

@@ -1,4 +1,5 @@
 import secrets
+from datetime import datetime, timezone
 from uuid import UUID
 
 from app.core.errors import AppError
@@ -91,3 +92,61 @@ class ChildrenService:
 
     def list_children(self, guardian_id: UUID) -> list[ChildSummary]:
         return self._repository.list_children_for_guardian(guardian_id)
+
+    def reset_child_pin(
+        self,
+        guardian_id: UUID,
+        child_id: UUID,
+        pin: str,
+    ) -> None:
+        if len(pin) != 4 or not pin.isascii() or not pin.isdigit():
+            raise AppError(
+                code="VALIDATION_ERROR",
+                status_code=422,
+                message="request validation failed",
+                details={"fields": ["pin"]},
+            )
+
+        updated = self._repository.reset_child_pin(
+            guardian_id=guardian_id,
+            child_id=child_id,
+            pin_hash=hash_password(pin),
+            revoked_at=datetime.now(timezone.utc),
+        )
+        if not updated:
+            raise AppError(
+                code="CHILD_NOT_FOUND",
+                status_code=404,
+                message="child not found",
+            )
+
+    def reissue_child_link_code(
+        self,
+        guardian_id: UUID,
+        child_id: UUID,
+    ) -> str:
+        for _ in range(MAX_LINK_CODE_ATTEMPTS):
+            link_code = "".join(
+                secrets.choice(LINK_CODE_ALPHABET)
+                for _ in range(LINK_CODE_LENGTH)
+            )
+            updated = self._repository.replace_child_link_code(
+                guardian_id=guardian_id,
+                child_id=child_id,
+                link_code=link_code,
+                revoked_at=datetime.now(timezone.utc),
+            )
+            if updated is True:
+                return link_code
+            if updated is False:
+                raise AppError(
+                    code="CHILD_NOT_FOUND",
+                    status_code=404,
+                    message="child not found",
+                )
+
+        raise AppError(
+            code="INTERNAL",
+            status_code=500,
+            message="could not issue child login code",
+        )

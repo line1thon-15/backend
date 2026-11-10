@@ -1,10 +1,11 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Child
+from app.db.models import AuthSession, Child
 from app.services.ports import (
     ChildRegistrationRecord,
     ChildSummary,
@@ -69,6 +70,72 @@ class SqlAlchemyChildrenRepository(ChildrenRepository):
                 )
                 for child in children
             ]
+
+    def reset_child_pin(
+        self,
+        guardian_id: UUID,
+        child_id: UUID,
+        pin_hash: str,
+        revoked_at: datetime,
+    ) -> bool:
+        with self._session_factory.begin() as session:
+            result = session.execute(
+                update(Child)
+                .where(
+                    Child.id == child_id,
+                    Child.guardian_id == guardian_id,
+                )
+                .values(pin_hash=pin_hash)
+            )
+            if result.rowcount == 0:
+                return False
+
+            session.execute(
+                update(AuthSession)
+                .where(
+                    AuthSession.subject_type == "child",
+                    AuthSession.subject_id == child_id,
+                    AuthSession.revoked_at.is_(None),
+                )
+                .values(revoked_at=revoked_at)
+            )
+        return True
+
+    def replace_child_link_code(
+        self,
+        guardian_id: UUID,
+        child_id: UUID,
+        link_code: str,
+        revoked_at: datetime,
+    ) -> bool | None:
+        try:
+            with self._session_factory.begin() as session:
+                result = session.execute(
+                    update(Child)
+                    .where(
+                        Child.id == child_id,
+                        Child.guardian_id == guardian_id,
+                    )
+                    .values(link_code=link_code)
+                )
+                if result.rowcount == 0:
+                    return False
+
+                session.execute(
+                    update(AuthSession)
+                    .where(
+                        AuthSession.subject_type == "child",
+                        AuthSession.subject_id == child_id,
+                        AuthSession.revoked_at.is_(None),
+                    )
+                    .values(revoked_at=revoked_at)
+                )
+        except IntegrityError:
+            if self._link_code_exists(link_code):
+                return None
+            raise
+
+        return True
 
     def _link_code_exists(self, link_code: str) -> bool:
         query = (
