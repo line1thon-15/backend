@@ -14,6 +14,21 @@ class GuardianCredentials:
     password_hash: str
 
 
+@dataclass(frozen=True)
+class ChildRegistrationRecord:
+    child_id: UUID
+    nickname: str
+    grade: str
+    link_code: str
+
+
+@dataclass(frozen=True)
+class ChildSummary:
+    child_id: UUID
+    nickname: str
+    grade: str
+
+
 class AuthRepository(Protocol):
     def find_guardian_by_email(self, email: str) -> GuardianCredentials | None: ...
 
@@ -32,4 +47,27 @@ class AuthRepository(Protocol):
         expires_at: datetime,
     ) -> None: ...
 
+    def find_guardian_id_for_active_session(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> UUID | None: ...
+
     def has_children(self, guardian_id: UUID) -> bool: ...
+
+
+class ChildrenRepository(Protocol):
+    def create_child(
+        self,
+        guardian_id: UUID,
+        nickname: str,
+        grade: str,
+        pin_hash: str,
+        consent_version: str,
+        link_code: str,
+    ) -> ChildRegistrationRecord | None: ...
+
+    def list_children_for_guardian(
+        self,
+        guardian_id: UUID,
+    ) -> list[ChildSummary]: ...

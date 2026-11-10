@@ -4,6 +4,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    ForeignKey,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -28,6 +30,52 @@ class Guardian(Base):
     )
     email: Mapped[str] = mapped_column(String(254), nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class Child(Base):
+    __tablename__ = "children"
+    __table_args__ = (
+        UniqueConstraint("link_code", name="uq_children_link_code"),
+        CheckConstraint(
+            "grade IN ('E6', 'M1', 'M2', 'M3', 'H1', 'H2', 'H3')",
+            name="ck_children_grade",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    guardian_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("guardians.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    nickname: Mapped[str] = mapped_column(String(20), nullable=False)
+    grade: Mapped[str] = mapped_column(String(2), nullable=False)
+    link_code: Mapped[str] = mapped_column(String(6), nullable=False)
+    pin_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    consent_agreed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    consent_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    start_difficulty: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -75,6 +75,24 @@ class SqlAlchemyAuthRepository:
                 )
             )
 
+    def find_guardian_id_for_active_session(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> UUID | None:
+        query = (
+            select(Guardian.id)
+            .join(AuthSession, AuthSession.subject_id == Guardian.id)
+            .where(
+                AuthSession.token_hash == token_hash,
+                AuthSession.subject_type == "guardian",
+                AuthSession.expires_at > now,
+                AuthSession.revoked_at.is_(None),
+            )
+        )
+        with self._session_factory() as session:
+            return session.scalar(query)
+
     def has_children(self, guardian_id: UUID) -> bool:
         if not inspect(self._engine).has_table("children"):
             return False

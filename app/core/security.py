@@ -20,7 +20,10 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def hash_session_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def create_session_token() -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    return token, token_hash
+    return token, hash_session_token(token)
