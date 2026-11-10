@@ -24,3 +24,23 @@ def require_guardian_id(request: Request) -> UUID:
             message="guardian authentication is required",
         )
     return guardian_id
+
+
+def require_child_id(request: Request) -> UUID:
+    session_token = request.cookies.get("sid")
+    if session_token is None:
+        raise AppError(
+            code="UNAUTHENTICATED",
+            status_code=401,
+            message="child authentication is required",
+        )
+
+    service: AuthService = request.app.state.auth_service
+    child_id = service.child_id_for_session_token(session_token)
+    if child_id is None:
+        raise AppError(
+            code="UNAUTHENTICATED",
+            status_code=401,
+            message="child authentication is required",
+        )
+    return child_id

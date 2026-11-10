@@ -60,6 +60,12 @@ class AuthRepository(Protocol):
         now: datetime,
     ) -> UUID | None: ...
 
+    def find_child_id_for_active_session(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> UUID | None: ...
+
     def find_child_by_link_code(
         self,
         link_code: str,
@@ -106,3 +112,18 @@ class ChildrenRepository(Protocol):
         link_code: str,
         revoked_at: datetime,
     ) -> bool | None: ...
+
+class OnboardingRepository(Protocol):
+    def save_onboarding(
+        self,
+        *,
+        child_id: UUID,
+        font_scale: str,
+        high_contrast: bool,
+        tts_enabled: bool,
+        trusted_contact_name: str | None,
+        trusted_contact_phone: str | None,
+        favorite_apps: list[str],
+        start_difficulty: int,
+        completed_at: datetime,
+    ) -> bool: ...

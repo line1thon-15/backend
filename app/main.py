@@ -10,17 +10,22 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.auth import router as auth_router
 from app.api.children import router as children_router
 from app.api.health import router as health_router
+
+from app.api.onboarding import router as onboarding_router
 from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
+
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.session import make_engine, make_session_factory
 from app.repositories.auth import SqlAlchemyAuthRepository
 from app.repositories.children import SqlAlchemyChildrenRepository
 from app.repositories.db_health import SqlAlchemyDatabaseProbe
+from app.repositories.onboarding import SqlAlchemyOnboardingRepository
 from app.services.auth import AuthService
 from app.services.children import ChildrenService
 from app.services.health import HealthService
+from app.services.onboarding import OnboardingService
 
 API_PREFIX = "/api/v1"
 logger = logging.getLogger(__name__)
@@ -129,6 +134,9 @@ def create_app(
     app.state.children_service = ChildrenService(
         SqlAlchemyChildrenRepository(session_factory)
     )
+    app.state.onboarding_service = OnboardingService(
+        SqlAlchemyOnboardingRepository(session_factory)
+    )
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
@@ -146,6 +154,7 @@ def create_app(
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_router, prefix=API_PREFIX)
     app.include_router(children_router, prefix=API_PREFIX)
+    app.include_router(onboarding_router, prefix=API_PREFIX)
     return app
 
 

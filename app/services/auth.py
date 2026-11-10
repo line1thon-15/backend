@@ -116,3 +116,9 @@ class AuthService:
             hash_session_token(session_token),
             datetime.now(timezone.utc),
         )
+
+    def child_id_for_session_token(self, session_token: str) -> UUID | None:
+        return self._repository.find_child_id_for_active_session(
+            hash_session_token(session_token),
+            datetime.now(timezone.utc),
+        )
