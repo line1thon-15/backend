@@ -52,7 +52,6 @@ class TurnResult(BaseModel):
     speaker_name: str
     choices: list[ChoiceOption] = Field(min_length=2, max_length=4)
     hint: str | None
-    is_terminal: bool
     substituted: bool
 
 

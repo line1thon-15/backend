@@ -29,7 +29,6 @@ class FakePracticeAI:
             speaker_name=f"[fake] {spec.variant.persona}",
             choices=choices,
             hint=hint,
-            is_terminal=False,
             substituted=False,
         )
         return OpeningResult(turn=turn, review=ReviewResult(passed=True, reasons=[]))
