@@ -1,4 +1,4 @@
-# Architecture — 서비스명 미정 (프로젝트: 2026_line1thon)
+﻿# Architecture — 서비스명 미정 (프로젝트: 2026_line1thon)
 
 > 소유자: architect | 상태: 승인 (2026-11-08 사용자 승인 — 원문 "승인했어", 기입 지시 원문 "대신 기입해", 메인 세션이 사용자 지시로 기입) | 최종 수정: 2026-11-08
 > 상태는 초안/승인 두 가지. "승인"으로 바꾸는 것은 사용자만 한다 — 승인 전 구현 착수 금지 (AGENTS.md 파이프라인 규칙).
@@ -275,6 +275,7 @@ implementer는 여기 정의된 규격만 사용한다. 값이 [OQ n]인 부분�
 | VALIDATION_ERROR | 422 | 입력 형식·범위 위반 (`details`에 필드명 목록, 값은 넣지 않음) |
 | CONSENT_REQUIRED | 422 | 법정대리인 동의 미체크 |
 | EMAIL_TAKEN | 409 | 이미 가입된 이메일 |
+| NOT_FOUND | 404 | Route not found |
 | INVALID_CREDENTIALS | 401 | 보호자 로그인 실패 |
 | INVALID_CODE_OR_PIN | 401 | 아이 로그인 실패 |
 | UNAUTHENTICATED | 401 | 세션 없음·만료·폐기 |
