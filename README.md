@@ -1,4 +1,4 @@
-# {{PROJECT_NAME}}
+# 2026_line1thon (backend)
 
 > 이 리포는 [start_coding](https://github.com/) 템플릿에서 생성되었다. 초기화 전이라면 아래 "새 프로젝트 시작"을 먼저 실행할 것.
 
@@ -29,12 +29,23 @@ bash scripts/init.sh "프로젝트명"
 
 ## 프로젝트 개요
 
-<!-- 초기화 후 docs 에이전트가 채운다 -->
+느린학습자(경계선 지능) 청소년이 위험하거나 어려운 상황을 AI와 안전하게 반복 연습하도록 돕는 반응형 웹 서비스의 **백엔드 저장소**다 (서비스명 미정, 근거: [docs/PRD.md](docs/PRD.md) 머리글·한 줄 정의). Python + FastAPI 백엔드이며 프론트·AI 서비스는 별도 저장소다([Architecture](docs/Architecture.md) 참조).
+
+### 현재 상태 (2026-11-08)
+
+- T-01(백엔드 테스트 하네스)만 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`, import 경계 테스트, CI 워크플로. **기능 API(가입·연습·리포트 등)는 아직 없다.**
+- CI(`.github/workflows/ci.yml`)는 `dev`·`main` 대상 PR에서 pytest를 Fake AI로 돌리도록 작성돼 있다. **GitHub에서 실제로 실행되는지는 아직 확인하지 못했다**(원격 저장소 미연결, 미검증).
+- T-01은 docs/Tasks.md 기준 "완료"다(리뷰·QA 통과, 치명 결함 0건). CI의 GitHub 실제 실행은 원격 저장소 연결 뒤 확인한다.
 
 ## 구조
 
 ```
-{{PROJECT_NAME}}/
+2026_line1thon/
+├── app/               # 백엔드 소스 (api·services·repositories·db·core·ai_client)
+├── tests/             # pytest (unit·integration)
+├── requirements.txt·requirements-dev.txt·pyproject.toml
+├── .env.example       # 환경 변수 플레이스홀더 (실제 값은 .env에만)
+├── .github/workflows/ci.yml # 백엔드 CI (dev·main 대상 PR에서 pytest)
 ├── AGENTS.md          # 마스터 규칙 (단일 원본)
 ├── CLAUDE.md          # Claude Code 어댑터
 ├── docs/              # 프로젝트 문서 + ToolPacks.md(스킬·MCP 팩) + KitFeedback.md(템플릿 개선 대기열)
@@ -70,4 +81,17 @@ bash scripts/init.sh "프로젝트명"
 
 ## 실행/빌드/테스트
 
-<!-- 검증된 명령어는 docs/CodingRules.md "검증된 명령어" 절에 기록 후 여기에 반영 -->
+원문은 [docs/CodingRules.md "검증된 명령어"](docs/CodingRules.md#검증된-명령어)다. 아래 명령은 Git Bash에서 저장소 루트 기준이며 시스템 Python 3.13으로 검증됐다. 환경 변수는 [.env.example](.env.example)을 참조한다.
+
+```bash
+# 가상환경 생성
+python -m venv .venv
+# 의존성 설치
+.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+# 테스트 (live_ai 마커 기본 제외)
+.venv/Scripts/python.exe -m pytest
+# dev 서버 (포트 8080)
+.venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8080
+# 헬스 확인 (dev 서버 기동 중)
+curl -sS -i http://localhost:8080/api/v1/health
+```
