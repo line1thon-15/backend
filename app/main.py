@@ -7,13 +7,16 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.auth import router as auth_router
+from app.api.children import router as children_router
 from app.api.health import router as health_router
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.session import make_engine, make_session_factory
 from app.repositories.auth import SqlAlchemyAuthRepository
+from app.repositories.children import SqlAlchemyChildrenRepository
 from app.repositories.db_health import SqlAlchemyDatabaseProbe
 from app.services.auth import AuthService
+from app.services.children import ChildrenService
 from app.services.health import HealthService
 
 API_PREFIX = "/api/v1"
@@ -111,8 +114,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.health_service = HealthService(SqlAlchemyDatabaseProbe(engine))
-    app.state.auth_service = AuthService(
-        SqlAlchemyAuthRepository(session_factory, engine)
+
+    auth_repository = SqlAlchemyAuthRepository(session_factory, engine)
+    app.state.auth_service = AuthService(auth_repository)
+    app.state.children_service = ChildrenService(
+        SqlAlchemyChildrenRepository(session_factory)
     )
 
     @app.middleware("http")
@@ -130,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_router, prefix=API_PREFIX)
+    app.include_router(children_router, prefix=API_PREFIX)
     return app
 
 

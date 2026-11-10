@@ -7,6 +7,7 @@ from app.core.security import (
     SESSION_TTL_SECONDS,
     create_session_token,
     hash_password,
+    hash_session_token,
     verify_password,
 )
 from app.services.ports import AuthRepository
@@ -76,4 +77,10 @@ class AuthService:
             guardian_id=guardian.guardian_id,
             session_token=token,
             has_children=self._repository.has_children(guardian.guardian_id),
+        )
+
+    def guardian_id_for_session_token(self, session_token: str) -> UUID | None:
+        return self._repository.find_guardian_id_for_active_session(
+            hash_session_token(session_token),
+            datetime.now(timezone.utc),
         )
