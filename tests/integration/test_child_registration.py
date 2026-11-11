@@ -4,7 +4,7 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import Settings
 from app.core.security import verify_password
@@ -111,8 +111,10 @@ def test_child_registration_rejects_invalid_pin(child_client, pin):
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "pin" in response.json()["error"]["details"]["fields"]
+    # The empty string is contained in every response, so skip this assertion for it.
     if pin:
         assert pin not in response.text
+    _assert_no_child_or_link_codes(child_client)
 
 
 def test_child_registration_rejects_missing_pin(child_client):
@@ -128,6 +130,19 @@ def test_child_registration_rejects_missing_pin(child_client):
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "pin" in response.json()["error"]["details"]["fields"]
+    _assert_no_child_or_link_codes(child_client)
+
+
+def _assert_no_child_or_link_codes(client: TestClient) -> None:
+    with client.app.state.session_factory() as session:
+        child_count = session.scalar(select(func.count()).select_from(Child))
+        link_code_count = session.scalar(
+            select(func.count()).select_from(Child).where(Child.link_code.is_not(None))
+        )
+
+    assert child_count == 0
+    assert link_code_count == 0
+
 
 def test_child_list_is_scoped_to_authenticated_guardian(child_client):
     first_guardian_id = _register_guardian(
