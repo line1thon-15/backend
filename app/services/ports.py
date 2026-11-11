@@ -90,3 +90,19 @@ class ChildrenRepository(Protocol):
         self,
         guardian_id: UUID,
     ) -> list[ChildSummary]: ...
+
+    def reset_child_pin(
+        self,
+        guardian_id: UUID,
+        child_id: UUID,
+        pin_hash: str,
+        revoked_at: datetime,
+    ) -> bool: ...
+
+    def replace_child_link_code(
+        self,
+        guardian_id: UUID,
+        child_id: UUID,
+        link_code: str,
+        revoked_at: datetime,
+    ) -> bool | None: ...
