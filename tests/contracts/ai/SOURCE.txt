@@ -1,0 +1,22 @@
+AI 계약 샘플 사본 — 직접 수정 금지. AI 계약이 바뀌면 원본 커밋을 다시 정하고 통째로 다시 복사한다.
+
+원본 저장소: line1thon-15/ai
+브랜치: feature/ai
+고정 커밋: 331d2c63481ea212105c466caba86a28acd9dea7 (331d2c6)
+원본 경로: contracts/*.json (12개)
+복사일: 2026-11-11 (T-86)
+고정 근거: docs/Tasks.md T-86 완료 조건 ①(라) — 사용자 답 "331d2c6에 지금 고정 (추천)"
+
+SHA-256 (복사 직후 원본과 대조 일치):
+d4b5e53f4a56d4da315420e4b55aa0af501c3f1288279193a65137f12c50731e *practice.feedback.request.json
+b044a5c697b3a2257dd5ad0106c1b8cecd82fbdc1abbf0bbf83b64f0a11cafc8 *practice.feedback.response.json
+26249d6ca8e1831e99c2d54114c04c4e53c701ed9e2b00a03b250f905df9124a *practice.judge.request.json
+13431a7026b2b76bc4177a309d8db1f51cf0e943b4b2e3abdd5117b72aee339a *practice.judge.response.json
+e9710bbb675b85443d079b406db2a5b3ececaf19b260362911f22d337c9e0d52 *practice.start.request.json
+1d98777089e0a5c370341cd4a20a64d2283a4806d7c3778188cfba5166c1b5f5 *practice.start.response.json
+c664d3df1f525bed19bffe59d16ccc306513a9faf54582dfc9e147c0f928baab *practice.turn.request.json
+27396fcf1cc4ef78455c5984681712144a81722ad4129e65286238a1d77632c4 *practice.turn.response.json
+085e0470a9ee0c02875aaf592dccc9fe83b40d294247d404ea28080ee7952022 *practice.variant.request.json
+e4c4ebb8d1a9be15187d9370d9463696718013d373816b63ef7472ad2a43e0f3 *practice.variant.response.json
+20387cc41ec1a0e7d82b0ea58fc94203bc496a61397f9e34e09f8992eafe6346 *summary.request.json
+1f8b7d81cb1eba07c4f07e562aedc61a57e6256a512c25aecf1635a40bda6770 *summary.response.json

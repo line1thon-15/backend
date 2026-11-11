@@ -1,149 +1,304 @@
-"""FakePracticeAI.opening 스모크 + 내부 API DTO 스키마 (Architecture "백엔드–AI 내부 API", Tasks T-01)."""
+"""FakePracticeAI·FakeSummaryAI = AI 계약 v1 (Architecture "1차 내부 API v1", DECISIONS #96·#97·#115, Tasks T-86 ①(마)).
+
+Fake 응답이 같은 응답 모델 검증을 통과하고 선택지 규칙 C(정확히 3개, kind 3종 각 1개, id 중복 없음)를 지키는지 본다.
+safe_reply·blocked는 생성자로, not_shown은 보낸 revealed_clue_ids로 테스트가 주입한다(T-15·T-16 테스트용).
+"""
 
 import pytest
-from pydantic import ValidationError
 
-from app.ai_client.fake import FakePracticeAI
+from app.ai_client.fake import FakePracticeAI, FakeSummaryAI
 from app.ai_client.ports import (
-    OpeningResult,
+    Choice,
+    FeedbackRequest,
+    FeedbackResponse,
+    JudgeRequest,
+    JudgeResponse,
+    Message,
     PracticeAI,
-    ReviewResult,
-    ScenarioSpec,
-    TurnResult,
+    StartRequest,
+    StartResponse,
+    SummaryAI,
+    SummaryRequest,
+    SummaryResponse,
+    TurnRequest,
+    TurnResponse,
+    VariantRequest,
+    VariantResponse,
 )
 
-TARGET_CUES = [
-    {"cue_id": "cue_urgent", "label": "급하게 재촉해요", "explanation": "예시 설명 1"},
-    {"cue_id": "cue_money", "label": "돈을 먼저 달라고 해요", "explanation": "예시 설명 2"},
-]
+SCENARIO_ID = "scam_fake_01"
 
 
-def make_spec(**overrides) -> ScenarioSpec:
-    data = {
-        "scenario_id": "scam_game_item_01",
-        "area": "scam",
-        "subtype": "game_item",
-        "is_normal": False,
-        "target_cues": TARGET_CUES,
-        "situation_seed": "예시 상황 씨앗",
-        "variant": {"tone": "friendly", "platform": "game_chat", "persona": "gamer"},
-        "grade_band": "middle",
-        "difficulty": None,
-        "hint_level": 1,
-    }
-    data.update(overrides)
-    return ScenarioSpec.model_validate(data)
+def assert_choice_rule_c(choices: list[Choice]) -> None:
+    assert len(choices) == 3
+    assert sorted(c.kind for c in choices) == ["correct", "doubtful", "other"]
+    assert len({c.id for c in choices}) == 3
+    assert all(c.text.strip() for c in choices)
 
 
-def make_choice(choice_id: str) -> dict:
-    return {"id": choice_id, "text": "예시 선택지", "judgment": "neutral", "cue_ids": []}
+def make_variant(fake: FakePracticeAI):
+    request = VariantRequest(scenario_id=SCENARIO_ID, platform="open_chat", tone="편한 말투", context="포장 알바")
+    return fake.variant(request).variant
 
 
-def test_opening_returns_turn_result_schema_and_passed_review():
-    spec = make_spec()
-
-    result = FakePracticeAI().opening(spec)
-
-    assert isinstance(result, OpeningResult)
-    assert isinstance(result.turn, TurnResult)
-    assert isinstance(result.review, ReviewResult)
-    revalidated = TurnResult.model_validate(result.turn.model_dump())
-    assert revalidated == result.turn
-    assert result.turn.ai_line.strip()
-    assert result.turn.speaker_name.strip()
-    assert 2 <= len(result.turn.choices) <= 4
-    assert "is_terminal" not in result.turn.model_dump()
-    assert result.turn.substituted is False
-    assert result.review.passed is True
-    assert result.review.reasons == []
+def child(text: str, kind: str, clue_id: str | None) -> Message:
+    return Message(role="child", text=text, choice_kind=kind, clue_id=clue_id)
 
 
-def test_opening_choice_cue_ids_cover_only_target_cues():
-    spec = make_spec()
-
-    turn = FakePracticeAI().opening(spec).turn
-
-    target_ids = {cue.cue_id for cue in spec.target_cues}
-    used_ids = {cue_id for choice in turn.choices for cue_id in choice.cue_ids}
-    assert used_ids == target_ids
-    assert len({choice.id for choice in turn.choices}) == len(turn.choices)
+def ai(text: str) -> Message:
+    return Message(role="ai", text=text)
 
 
-def test_opening_hint_is_null_when_hint_level_is_zero():
-    turn = FakePracticeAI().opening(make_spec(hint_level=0)).turn
-
-    assert turn.hint is None
+# ---- 포트 적합 --------------------------------------------------------------
 
 
-def test_opening_hint_is_text_when_hint_level_is_positive():
-    turn = FakePracticeAI().opening(make_spec(hint_level=3)).turn
-
-    assert isinstance(turn.hint, str) and turn.hint.strip()
-
-
-def test_opening_normal_scenario_has_no_cue_ids():
-    spec = make_spec(is_normal=True, target_cues=[], subtype=None, area="friend_request")
-
-    turn = FakePracticeAI().opening(spec).turn
-
-    assert 2 <= len(turn.choices) <= 4
-    assert all(choice.cue_ids == [] for choice in turn.choices)
-
-
-def test_opening_is_deterministic_for_same_spec():
-    fake = FakePracticeAI()
-
-    first = fake.opening(make_spec()).model_dump()
-    second = fake.opening(make_spec()).model_dump()
-
-    assert first == second
-
-
-def test_fake_satisfies_practice_ai_port():
+def test_fake_practice_ai_satisfies_port():
     assert isinstance(FakePracticeAI(), PracticeAI)
 
 
-def test_scenario_spec_rejects_child_identifying_field():
-    with pytest.raises(ValidationError):
-        make_spec(nickname="예시별명")
+def test_fake_summary_ai_satisfies_port():
+    assert isinstance(FakeSummaryAI(), SummaryAI)
 
 
-def test_scenario_spec_rejects_unknown_area():
-    with pytest.raises(ValidationError):
-        make_spec(area="unknown_area")
+def test_fake_has_no_opening():
+    assert not hasattr(FakePracticeAI(), "opening")
 
 
-@pytest.mark.parametrize("choice_count", [1, 5])
-def test_turn_result_rejects_choice_count_outside_2_to_4(choice_count):
-    with pytest.raises(ValidationError):
-        TurnResult.model_validate(
-            {
-                "ai_line": "예시 대사",
-                "speaker_name": "예시 상대",
-                "choices": [make_choice(f"c{i}") for i in range(1, choice_count + 1)],
-                "hint": None,
-                "substituted": False,
-            }
-        )
+# ---- variant ----------------------------------------------------------------
 
 
-def test_turn_result_has_no_is_terminal_field():
-    # 종료 판정은 백엔드 규칙만 한다 (DECISIONS #81, ADR-0015) — AI 응답 DTO에 종료 플래그를 두지 않는다.
-    assert "is_terminal" not in TurnResult.model_fields
+def test_variant_echoes_requested_values_and_validates():
+    fake = FakePracticeAI()
+    request = VariantRequest(scenario_id=SCENARIO_ID, platform="open_chat", tone="편한 말투", context="포장 알바")
+
+    response = fake.variant(request)
+
+    assert VariantResponse.model_validate(response.model_dump()) == response
+    assert response.source == "model"
+    assert response.variant.base_scenario_id == SCENARIO_ID
+    assert (response.variant.platform, response.variant.tone, response.variant.context) == (
+        "open_chat",
+        "편한 말투",
+        "포장 알바",
+    )
+    assert [c.id for c in response.variant.clues] == list(fake.clue_ids)
 
 
-@pytest.mark.parametrize("flag", [True, False])
-def test_turn_result_ignores_is_terminal_from_ai(flag):
-    # 전환 허용 (DECISIONS #81): AI가 아직 is_terminal을 보내도 오류 없이 파싱하고 값은 남기지 않는다.
-    turn = TurnResult.model_validate(
-        {
-            "ai_line": "예시 대사",
-            "speaker_name": "예시 상대",
-            "choices": [make_choice("c1"), make_choice("c2")],
-            "hint": None,
-            "is_terminal": flag,
-            "substituted": False,
-        }
+def test_variant_is_deterministic():
+    request = VariantRequest(scenario_id=SCENARIO_ID, platform="dm", tone="존댓말", context="게임")
+
+    assert FakePracticeAI().variant(request) == FakePracticeAI().variant(request)
+
+
+def test_fake_rejects_empty_clue_ids():
+    with pytest.raises(ValueError):
+        FakePracticeAI(clue_ids=())
+
+
+# ---- start ------------------------------------------------------------------
+
+
+def test_start_returns_ok_with_choice_rule_c():
+    fake = FakePracticeAI()
+    variant = make_variant(fake)
+
+    response = fake.start(StartRequest(scenario_id=SCENARIO_ID, variant=variant))
+
+    assert StartResponse.model_validate(response.model_dump()) == response
+    assert response.status == "ok"
+    assert_choice_rule_c(response.choices)
+    assert response.reply == variant.opening_line
+    assert response.title == variant.title
+    assert response.child_setup == variant.child_setup
+    assert response.ai_role_name == variant.ai_role.name
+    assert response.revealed_clue_ids == [fake.clue_ids[0]]
+    assert response.target_clue_id == fake.clue_ids[0]
+
+
+def test_start_without_variant_still_validates():
+    fake = FakePracticeAI()
+
+    response = fake.start(StartRequest(scenario_id=SCENARIO_ID))
+
+    assert StartResponse.model_validate(response.model_dump()) == response
+    assert_choice_rule_c(response.choices)
+    assert response.reply.strip() and response.title.strip()
+
+
+# ---- turn -------------------------------------------------------------------
+
+
+def make_turn_request(revealed: list[str]) -> TurnRequest:
+    return TurnRequest(
+        scenario_id=SCENARIO_ID,
+        messages=[ai("첫 대사"), child("예시 답", "other", revealed[-1] if revealed else None)],
+        revealed_clue_ids=revealed,
     )
 
-    assert "is_terminal" not in turn.model_dump()
+
+def test_turn_ok_reveals_next_clue_with_choice_rule_c():
+    fake = FakePracticeAI(clue_ids=("clue_a", "clue_b", "clue_c"))
+
+    response = fake.turn(make_turn_request(["clue_a"]))
+
+    assert TurnResponse.model_validate(response.model_dump()) == response
+    assert response.status == "ok"
+    assert_choice_rule_c(response.choices)
+    assert response.revealed_clue_ids == ["clue_a", "clue_b"]
+    assert response.target_clue_id == "clue_b"
+    assert response.all_clues_revealed is False
+
+
+def test_turn_ok_when_all_revealed_keeps_list_and_null_target():
+    fake = FakePracticeAI(clue_ids=("clue_a", "clue_b"))
+
+    response = fake.turn(make_turn_request(["clue_a", "clue_b"]))
+
+    assert response.status == "ok"
+    assert response.revealed_clue_ids == ["clue_a", "clue_b"]
+    assert response.target_clue_id is None
+    assert response.all_clues_revealed is True
+    assert_choice_rule_c(response.choices)
+
+
+def test_turn_safe_reply_is_injectable():
+    fake = FakePracticeAI(turn_status="safe_reply")
+
+    response = fake.turn(make_turn_request(["clue_a"]))
+
+    assert TurnResponse.model_validate(response.model_dump()) == response
+    assert response.status == "safe_reply"
+    assert response.choices == []
+    assert response.choices_source == "none"
+    assert response.target_clue_id is None
+    assert response.revealed_clue_ids == ["clue_a"]
+
+
+def test_turn_blocked_is_injectable_and_keeps_choice_rule_c():
+    fake = FakePracticeAI(turn_status="blocked")
+
+    response = fake.turn(make_turn_request(["clue_a"]))
+
+    assert TurnResponse.model_validate(response.model_dump()) == response
+    assert response.status == "blocked"
+    assert response.source == "fixed"
+    assert_choice_rule_c(response.choices)
+
+
+def test_fake_rejects_unknown_turn_status():
+    with pytest.raises(ValueError):
+        FakePracticeAI(turn_status="ended")
+
+
+def test_turn_uses_variant_clues_when_given():
+    fake = FakePracticeAI(clue_ids=("clue_a", "clue_b"))
+    variant = make_variant(fake)
+    request = TurnRequest(
+        scenario_id=SCENARIO_ID,
+        messages=[child("예시 답", "doubtful", "clue_a")],
+        revealed_clue_ids=["clue_a"],
+        variant=variant,
+    )
+
+    assert fake.turn(request).revealed_clue_ids == ["clue_a", "clue_b"]
+
+
+# ---- judge ------------------------------------------------------------------
+
+
+def test_judge_marks_found_missed_and_not_shown_in_scenario_order():
+    fake = FakePracticeAI(clue_ids=("clue_a", "clue_b", "clue_c"))
+    request = JudgeRequest(
+        scenario_id=SCENARIO_ID,
+        messages=[
+            ai("대사 1"),
+            child("따를게요", "other", "clue_a"),
+            ai("대사 2"),
+            child("이상해요, 어른께 물어볼게요", "correct", "clue_b"),
+        ],
+        revealed_clue_ids=["clue_a", "clue_b"],
+    )
+
+    response = fake.judge(request)
+
+    assert JudgeResponse.model_validate(response.model_dump()) == response
+    assert [(r.clue_id, r.result) for r in response.results] == [
+        ("clue_a", "missed"),
+        ("clue_b", "found"),
+        ("clue_c", "not_shown"),
+    ]
+    assert response.source == "choices"
+
+
+def test_judge_doubtful_is_not_found():
+    # AI doubtful("의심되는 답")은 PRD '의심' 태그가 아니다 (#97) — correct만 찾음.
+    fake = FakePracticeAI(clue_ids=("clue_a",))
+    request = JudgeRequest(
+        scenario_id=SCENARIO_ID,
+        messages=[child("음… 일단 해 볼까요", "doubtful", "clue_a")],
+        revealed_clue_ids=["clue_a"],
+    )
+
+    assert [r.result for r in fake.judge(request).results] == ["missed"]
+
+
+def test_judge_correct_on_unrevealed_clue_is_not_shown():
+    fake = FakePracticeAI(clue_ids=("clue_a", "clue_b"))
+    request = JudgeRequest(
+        scenario_id=SCENARIO_ID,
+        messages=[child("이상해요", "correct", "clue_b")],
+        revealed_clue_ids=["clue_a"],
+    )
+
+    assert [r.result for r in fake.judge(request).results] == ["missed", "not_shown"]
+
+
+# ---- feedback ---------------------------------------------------------------
+
+
+def test_feedback_cards_only_found_and_missed_in_request_order():
+    fake = FakePracticeAI()
+    request = FeedbackRequest(
+        scenario_id=SCENARIO_ID,
+        results=[
+            {"clue_id": "clue_a", "result": "missed"},
+            {"clue_id": "clue_b", "result": "not_shown"},
+            {"clue_id": "clue_c", "result": "found"},
+        ],
+    )
+
+    response = fake.feedback(request)
+
+    assert FeedbackResponse.model_validate(response.model_dump()) == response
+    assert [(c.clue_id, c.result) for c in response.cards] == [("clue_a", "missed"), ("clue_c", "found")]
+    assert all(c.text.strip() for c in response.cards)
+    assert response.closing_line.strip()
+
+
+def test_feedback_with_all_not_shown_has_no_cards():
+    response = FakePracticeAI().feedback(
+        FeedbackRequest(scenario_id=SCENARIO_ID, results=[{"clue_id": "clue_a", "result": "not_shown"}])
+    )
+
+    assert response.cards == []
+    assert response.closing_line.strip()
+
+
+# ---- summary ----------------------------------------------------------------
+
+
+def test_summary_returns_validated_non_blank_sentence():
+    request = SummaryRequest(area="사기", practice_count=3, found_clues=["돈 요구"], missed_clues=[], growth_level=None)
+
+    response = FakeSummaryAI().summary(request)
+
+    assert SummaryResponse.model_validate(response.model_dump()) == response
+    assert isinstance(response.summary, str) and response.summary.strip()
+
+
+def test_summary_mentions_only_input_numbers():
+    # S2: 숫자는 입력 값에 있는 것만 (#53).
+    response = FakeSummaryAI().summary(SummaryRequest(area="사기", practice_count=0))
+
+    assert "0" in response.summary
+    assert not any(ch.isdigit() and ch != "0" for ch in response.summary)
