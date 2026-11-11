@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -9,6 +10,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.auth import router as auth_router
 from app.api.children import router as children_router
 from app.api.health import router as health_router
+from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
+from app.content.loader import load_content
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.session import make_engine, make_session_factory
@@ -104,13 +107,19 @@ async def _handle_unexpected_error(
     )
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    content_dir: Path = DEFAULT_CONTENT_DIR,
+) -> FastAPI:
     settings = settings or Settings()
+    # 콘텐츠 검증 실패면 ContentValidationError로 시작하지 않는다 (T-87, DECISIONS #111·#118)
+    content = load_content(content_dir)
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
 
     app = FastAPI()
     app.state.settings = settings
+    app.state.content = content
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.health_service = HealthService(SqlAlchemyDatabaseProbe(engine))

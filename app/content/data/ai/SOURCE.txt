@@ -1,0 +1,21 @@
+AI 콘텐츠 읽기 전용 사본 — 직접 수정 금지. AI 콘텐츠가 바뀌면 원본 커밋을 다시 정하고 통째로 다시 복사한다(DECISIONS #107·#111).
+
+원본 저장소: line1thon-15/ai
+브랜치: feature/ai
+고정 커밋: 331d2c63481ea212105c466caba86a28acd9dea7 (331d2c6)
+원본 경로 → 사본 경로:
+  content/clues.json           → app/content/data/ai/clues.json
+  content/scenarios/scam.json  → app/content/data/ai/scenarios/scam.json
+  (고정 커밋의 content/scenarios/ 에는 scam.json 1개뿐. content/safety_cases.json·safety_messages.json 은 복사 대상 아님 — T-87 완료 조건 ①)
+복사일: 2026-11-11 (T-87)
+고정 근거: docs/Tasks.md T-87 완료 조건 ① — 고정 커밋 = T-86 계약 샘플과 같은 커밋(사용자 답 "331d2c6에 지금 고정 (추천)")
+
+SHA-256 (LF 기준 = git blob 내용, `git show 331d2c6:<원본 경로> | sha256sum`. 복사 직후 원본과 cmp 일치 확인):
+c64eec9378c68ef71f263723cd302dffe24ad79c755fd54d1881b80137f0bcf1 *clues.json
+59215c14e0280ad42f1c7d8a57e9ddcd14e9d5f131287cbf982031eda6c59802 *scenarios/scam.json
+
+참고 — Windows 체크아웃(core.autocrlf=true, CRLF) 작업 트리 파일의 SHA-256:
+f12628f866bf1fb530bb2877d1e0ebe92b42e35cadc2be1b0e16eb2cfc8c9552 *clues.json
+7abdd41c07d63312950a902ae0b8dfb71b27bc3e514e3e08da9fd487d938a3ca *scenarios/scam.json
+
+검증: tests/unit/test_content_loader.py 의 사본 무결성 테스트가 CRLF→LF 정규화 후 위 LF 기준 값과 대조한다.

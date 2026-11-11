@@ -1,0 +1,37 @@
+{
+  "note": "예시 데이터(N-11) — 문항·점수·난이도 단계는 implementer 잠정값. 난이도 단계 수는 PRD OQ 14. 콘텐츠 담당(PRD OQ 3) 확인 후 교체",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "모르는 사람이 메시지로 돈을 쉽게 벌 수 있다고 하면 어떻게 할까요?",
+      "options": [
+        {"id": "q1_a", "text": "바로 해 본다", "score": 0},
+        {"id": "q1_b", "text": "잘 모르겠다", "score": 1},
+        {"id": "q1_c", "text": "믿는 어른에게 먼저 물어본다", "score": 2}
+      ]
+    },
+    {
+      "id": "q2",
+      "text": "친구가 내 이름으로 휴대폰을 만들어 달라고 하면 어떻게 할까요?",
+      "options": [
+        {"id": "q2_a", "text": "친구니까 해 준다", "score": 0},
+        {"id": "q2_b", "text": "잘 모르겠다", "score": 1},
+        {"id": "q2_c", "text": "안 된다고 말한다", "score": 2}
+      ]
+    },
+    {
+      "id": "q3",
+      "text": "모르는 링크를 눌러 개인정보를 쓰라고 하면 어떻게 할까요?",
+      "options": [
+        {"id": "q3_a", "text": "써서 보낸다", "score": 0},
+        {"id": "q3_b", "text": "잘 모르겠다", "score": 1},
+        {"id": "q3_c", "text": "누르지 않는다", "score": 2}
+      ]
+    }
+  ],
+  "difficulty_by_score": [
+    {"min_score": 0, "max_score": 2, "difficulty": 1},
+    {"min_score": 3, "max_score": 4, "difficulty": 2},
+    {"min_score": 5, "max_score": 6, "difficulty": 3}
+  ]
+}
