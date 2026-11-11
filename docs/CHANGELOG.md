@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 2026-11-11 T-87 AI 콘텐츠 읽기 전용 사본과 서버 시작 시 검증(브랜치 `claude/angry-lewin-8ac42e`, 구현 커밋 53144c9) — `app/content/data/ai/`(clues.json·scenarios/scam.json, ai 저장소 `feature/ai` 331d2c6 고정, 출처·SHA-256 `SOURCE.txt`), 보충 예시 데이터 `scenario_meta`·`platform_app_types`·`diagnosis`·`safety_stop`(.json; safety_stop 문구는 OQ 66 답 후 교체), `app/content/loader.py`·`schemas.py`, `create_app()`이 시작 시 콘텐츠를 로드·검증(잘못되면 기동 거부), `tests/unit/test_content_loader.py`(사본 해시 무결성 포함). 리뷰 치명 0, QA 6/6, pytest 142 passed(QA 확인, 인용). 사본 갱신 절차는 README 참조(DECISIONS #107)
 - 2026-11-11 T-86 `tests/contracts/ai/` — AI 계약 샘플 12개(ai 저장소 `feature/ai` 331d2c6 고정 사본)와 `SOURCE.txt`(출처·SHA-256), 신규 `tests/unit/test_ai_ports.py`(샘플이 포트 모델로 파싱되는지 검증)
 - 2026-11-08 T-01 백엔드 테스트 하네스(커밋 43a6acd, 브랜치 `feat/T-01-backend-harness`) — pytest 설정, `GET /api/v1/health` 헬스 엔드포인트(`app/api/health.py`), `FakePracticeAI`와 `PracticeAI` 포트(`app/ai_client/`), import 경계·헬스·AI 클라이언트 팩토리 테스트(`tests/`), `.env.example`, `requirements*.txt`
 - 2026-11-08 `.github/workflows/ci.yml` — `dev`·`main` 대상 PR에서 pytest 실행(Fake AI). 작성만 됨, GitHub 실제 실행은 원격 미연결로 미검증
