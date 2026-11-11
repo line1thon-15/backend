@@ -33,6 +33,12 @@ def upgrade() -> None:
         sa.Column("trusted_contact_name", sa.String(length=20), nullable=True),
         sa.Column("trusted_contact_phone", sa.String(length=20), nullable=True),
         sa.Column(
+            "favorite_apps",
+            sa.JSON(),
+            server_default=sa.text("'[]'"),
+            nullable=False,
+        ),
+        sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
             server_default=sa.func.now(),
