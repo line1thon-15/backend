@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 2026-11-11 T-86 `tests/contracts/ai/` — AI 계약 샘플 12개(ai 저장소 `feature/ai` 331d2c6 고정 사본)와 `SOURCE.txt`(출처·SHA-256), 신규 `tests/unit/test_ai_ports.py`(샘플이 포트 모델로 파싱되는지 검증)
 - 2026-11-08 T-01 백엔드 테스트 하네스(커밋 43a6acd, 브랜치 `feat/T-01-backend-harness`) — pytest 설정, `GET /api/v1/health` 헬스 엔드포인트(`app/api/health.py`), `FakePracticeAI`와 `PracticeAI` 포트(`app/ai_client/`), import 경계·헬스·AI 클라이언트 팩토리 테스트(`tests/`), `.env.example`, `requirements*.txt`
 - 2026-11-08 `.github/workflows/ci.yml` — `dev`·`main` 대상 PR에서 pytest 실행(Fake AI). 작성만 됨, GitHub 실제 실행은 원격 미연결로 미검증
 - 2026-11-08 docs/CodingRules.md "검증된 명령어"에 backend 가상환경·설치·테스트·dev 서버·헬스 확인 5행 추가(T-01 실측)
@@ -28,6 +29,7 @@
 - 2026-11-08 프로젝트 초기화 (start_coding 템플릿) — 날짜는 최초 커밋 5070035 기준
 
 ### Changed
+- 2026-11-11 T-86 AI 포트·Fake를 AI 계약 v1로 재정의(브랜치 `feature/T-86-ai-contract-v1-port`, 미커밋) — `app/ai_client/ports.py`는 `PracticeAI`(`variant`·`start`·`turn`·`judge`·`feedback`)와 `SummaryAI`(`summary`)로, `fake.py`는 `FakePracticeAI`·`FakeSummaryAI`로 바뀌고 `opening`·`ScenarioSpec`·`TurnResult`·`OpeningResult`는 삭제됨(DECISIONS #96·#97·#98·#104·#108, ADR-0017). 영역 ID는 `scam`·`identity_lending`·`friend_pressure`로 변경(옛 `name_lending`·`friend_request` 삭제). T-85가 추가한 `TurnResult` 테스트 3개는 모델 삭제로 함께 제거. pytest 55 → 113 passed(QA 직접 재실행 확인)
 - 2026-11-09 T-85 `TurnResult.is_terminal` 삭제(브랜치 `feature/T-85-remove-is-terminal`, 미커밋) — `app/ai_client/ports.py`·`fake.py`에서 필드·인자 제거. 연습 종료 판정은 백엔드 규칙만 한다(DECISIONS #81, ADR-0015). AI가 `is_terminal`을 아직 보내도 오류 없이 파싱하고 값은 남기지 않음(전환 허용). `tests/unit/test_fake_practice_ai.py`에 "필드 없음"·"AI 값 무시(True/False)" 테스트 추가로 pytest 35 → 38 passed(QA 재실행 확인)
 - 2026-10-27 역할 단일 원본을 `.agents/roles/*.role.md`로 통합 — `.claude/agents/*.md`와 `.codex/agents/*.toml`은 원본을 가리키는 연결 파일로 축소
 - 2026-10-27 `.codex/EXECUTION.md`·`.agents/skills/vibe-mode/SKILL.md`·`docs/ToolPacks.md`·`docs/KitFeedback.md` 갱신, AGENTS.md 문서 소유권 표에 새 경로 반영

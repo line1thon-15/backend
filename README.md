@@ -33,7 +33,7 @@ bash scripts/init.sh "프로젝트명"
 
 ### 현재 상태 (2026-11-08)
 
-- T-01(백엔드 테스트 하네스)만 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`, import 경계 테스트, CI 워크플로. **기능 API(가입·연습·리포트 등)는 아직 없다.**
+- T-01(백엔드 테스트 하네스)만 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. **기능 API(가입·연습·리포트 등)는 아직 없다.**
 - CI(`.github/workflows/ci.yml`)는 `dev`·`main` 대상 PR에서 pytest를 Fake AI로 돌리도록 작성돼 있다. **GitHub에서 실제로 실행되는지는 아직 확인하지 못했다**(원격 저장소 미연결, 미검증).
 - T-01은 docs/Tasks.md 기준 "완료"다(리뷰·QA 통과, 치명 결함 0건). CI의 GitHub 실제 실행은 원격 저장소 연결 뒤 확인한다.
 
@@ -43,6 +43,7 @@ bash scripts/init.sh "프로젝트명"
 2026_line1thon/
 ├── app/               # 백엔드 소스 (api·services·repositories·db·core·ai_client)
 ├── tests/             # pytest (unit·integration)
+│   └── contracts/ai/  # AI 계약 샘플 12개 사본 (ai 저장소 feature/ai 331d2c6 고정, 직접 수정 금지, 출처 SOURCE.txt)
 ├── requirements.txt·requirements-dev.txt·pyproject.toml
 ├── .env.example       # 환경 변수 플레이스홀더 (실제 값은 .env에만)
 ├── .github/workflows/ci.yml # 백엔드 CI (dev·main 대상 PR에서 pytest)
