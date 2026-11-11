@@ -1,0 +1,18 @@
+{
+  "version": "v1",
+  "note": "예시 데이터(N-11) — 앱 유형 ID·이름과 AI 플랫폼 ID 대응은 implementer 잠정값(PRD·Architecture에 목록 없음). F-08 favorite_apps 허용 목록 = app_types의 id. 콘텐츠 담당(PRD OQ 3)·프론트 담당 확인 후 교체",
+  "app_types": [
+    {"id": "sns", "label": "SNS"},
+    {"id": "messenger", "label": "메신저·오픈채팅"},
+    {"id": "sms", "label": "문자"},
+    {"id": "job_site", "label": "알바·채용 사이트"},
+    {"id": "game", "label": "게임"}
+  ],
+  "platforms": [
+    {"platform_id": "sns_dm", "app_type": "sns"},
+    {"platform_id": "open_chat", "app_type": "messenger"},
+    {"platform_id": "text_message", "app_type": "sms"},
+    {"platform_id": "friend_intro", "app_type": "messenger"},
+    {"platform_id": "job_board", "app_type": "job_site"}
+  ]
+}

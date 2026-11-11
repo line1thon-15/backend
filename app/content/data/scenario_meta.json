@@ -1,0 +1,8 @@
+{
+  "version": "v1",
+  "note": "예시 데이터(N-11) — 하위 유형 분류는 implementer 잠정값. 고정 커밋 331d2c6의 사기 시나리오 2개가 모두 알바 제안이라 고수익 알바(min_grade H1, F-14 ②)로 둠. 콘텐츠 담당(PRD OQ 3) 확인 후 교체. AI 시나리오에 subtype·min_grade가 들어오면 이 파일의 해당 부분은 없앤다(DECISIONS #111, G9)",
+  "scenarios": [
+    {"scenario_id": "scam_dm_parttime_01", "subtype": "high_paying_job", "min_grade": "H1"},
+    {"scenario_id": "scam_jobboard_link_01", "subtype": "high_paying_job", "min_grade": "H1"}
+  ]
+}
