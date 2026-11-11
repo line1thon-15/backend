@@ -99,7 +99,7 @@ def test_child_registration_returns_link_code_and_stores_only_pin_hash(
     assert verify_password("1234", child.pin_hash)
 
 
-@pytest.mark.parametrize("pin", ["123", "12a4", "竊묕폃竊볩폇"])
+@pytest.mark.parametrize("pin", ["123", "12a4", "１２３４", "", "12345"])
 def test_child_registration_rejects_invalid_pin(child_client, pin):
     _register_guardian(child_client, "parent@example.com")
 
@@ -111,8 +111,23 @@ def test_child_registration_rejects_invalid_pin(child_client, pin):
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "pin" in response.json()["error"]["details"]["fields"]
-    assert pin not in response.text
+    if pin:
+        assert pin not in response.text
 
+
+def test_child_registration_rejects_missing_pin(child_client):
+    _register_guardian(child_client, "parent@example.com")
+    payload = _child_payload()
+    payload.pop("pin")
+
+    response = child_client.post(
+        "/api/v1/children",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert "pin" in response.json()["error"]["details"]["fields"]
 
 def test_child_list_is_scoped_to_authenticated_guardian(child_client):
     first_guardian_id = _register_guardian(
