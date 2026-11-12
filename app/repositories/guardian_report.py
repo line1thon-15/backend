@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Child, CueResult, PracticeSession
-from app.domain.guardian_report import EndedSession
+from app.domain.guardian_report import CueOutcome, EndedSession
 from app.services.ports import GuardianReportRepository, ReportChild
 
 
@@ -35,9 +35,9 @@ class SqlAlchemyGuardianReportRepository(GuardianReportRepository):
             rows = session.execute(query).all()
         return [EndedSession(area=row.area, ended_at=_as_utc(row.ended_at)) for row in rows]
 
-    def ended_cue_outcomes(self, child_id: UUID) -> list[tuple[str, str]]:
+    def ended_cue_outcomes(self, child_id: UUID) -> list[CueOutcome]:
         query = (
-            select(CueResult.cue_id, CueResult.outcome)
+            select(CueResult.cue_id, CueResult.outcome, PracticeSession.ended_at)
             .join(PracticeSession, PracticeSession.id == CueResult.session_id)
             .where(
                 CueResult.child_id == child_id,
@@ -47,4 +47,4 @@ class SqlAlchemyGuardianReportRepository(GuardianReportRepository):
         )
         with self._session_factory() as session:
             rows = session.execute(query).all()
-        return [(row.cue_id, row.outcome) for row in rows]
+        return [CueOutcome(cue_id=row.cue_id, outcome=row.outcome, at=_as_utc(row.ended_at)) for row in rows]

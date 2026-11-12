@@ -3,7 +3,7 @@
 - 인가: `get_owned_child(guardian_id, child_id)` 한 쿼리 — 없거나 남의 아이면 404 `CHILD_NOT_FOUND`.
 - 원천: practice_sessions·cue_results(`status = ended`만). practice_turns는 읽지 않는다.
 - `notices`·`metrics`·`summary`는 이 브랜치에 원천이 없다(guardian_notices 테이블 없음, 지표 T-46, 요약 T-76).
-  빈 목록·자리표시 요약으로 채운다 — T-25 보고 Open Question(확정 동작 아님).
+  `notices`·`metrics`는 빈 목록(Open Question), `summary`는 사용자 결정 임시값 `insufficient`.
 """
 
 from collections.abc import Mapping, Sequence
@@ -28,8 +28,9 @@ class GuardianSummary:
     items: tuple = ()
 
 
-# 요약 생성(T-76) 전 자리표시 — 1차 단위 "area"(#114), 생성하지 않았으므로 items 없음.
-PENDING_SUMMARY = GuardianSummary(status="unavailable", unit="area")
+# 요약 생성(T-76) 전 임시값 — 2026-11-12 사용자 답 "아직 기록이 적어요 (추천)"(설명 원문 "status=insufficient.
+# 오류처럼 보이지 않고 자연스러워요. T-76이 끝나면 실제 요약으로 바뀌어요."). 1차 단위 "area"(#114), items 없음.
+PENDING_SUMMARY = GuardianSummary(status="insufficient", unit="area")
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.guardian_report import EndedSession
+from app.domain.guardian_report import CueOutcome, EndedSession
 
 
 class DatabaseProbe(Protocol):
@@ -281,6 +281,6 @@ class GuardianReportRepository(Protocol):
 
     def ended_sessions(self, child_id: UUID) -> list[EndedSession]: ...
 
-    def ended_cue_outcomes(self, child_id: UUID) -> list[tuple[str, str]]:
-        """`status = ended` 세션의 (cue_id, outcome) 목록."""
+    def ended_cue_outcomes(self, child_id: UUID) -> list[CueOutcome]:
+        """`status = ended` 세션의 단서 판정 목록 — 판정 시각은 그 세션의 종료 시각."""
         ...

@@ -190,14 +190,31 @@ def label(cue_id: str) -> str:
 
 def test_report_shows_area_progress_and_weak_cues(env, family):
     guardian, child = family
-    env.seed_session(child["child_id"], area="scam", ended_at=T0, outcomes={"urgency": "missed", "keep_secret": "found"})
+    env.seed_session(
+        child["child_id"],
+        area="scam",
+        ended_at=T0,
+        outcomes={"urgency": "missed", "keep_secret": "missed", "advance_payment": "missed"},
+    )
     env.seed_session(
         child["child_id"],
         area="scam",
         ended_at=T0 + timedelta(days=1),
-        outcomes={"urgency": "missed", "advance_payment": "missed"},
+        outcomes={"urgency": "missed", "advance_payment": "missed", "personal_info": "missed"},
     )
-    env.seed_session(child["child_id"], area="friend_pressure", ended_at=T0 - timedelta(days=2), outcomes={"keep_secret": "found"})
+    # keep_secret: 놓침 2회였지만 가장 최근 판정이 찾음 → 약점에서 빠짐 / personal_info: 놓침 1회 → 빠짐
+    env.seed_session(
+        child["child_id"],
+        area="friend_pressure",
+        ended_at=T0 + timedelta(days=2),
+        outcomes={"keep_secret": "found"},
+    )
+    env.seed_session(
+        child["child_id"],
+        area="friend_pressure",
+        ended_at=T0 - timedelta(days=2),
+        outcomes={"keep_secret": "missed"},
+    )
 
     response = env.report(child["child_id"], guardian)
 
@@ -208,11 +225,12 @@ def test_report_shows_area_progress_and_weak_cues(env, family):
     assert body["areas"] == [
         {"area": "scam", "practice_count": 2, "last_practiced_at": "2026-11-11T15:00:00Z"},
         {"area": "identity_lending", "practice_count": 0, "last_practiced_at": None},
-        {"area": "friend_pressure", "practice_count": 1, "last_practiced_at": "2026-11-08T15:00:00Z"},
+        {"area": "friend_pressure", "practice_count": 2, "last_practiced_at": "2026-11-12T15:00:00Z"},
     ]
+    # 동점(놓침 2회·마지막 놓침 같은 시각) → cue_id 순
     assert body["weak_cues"] == [
-        {"cue_id": "urgency", "label": label("urgency")},
         {"cue_id": "advance_payment", "label": label("advance_payment")},
+        {"cue_id": "urgency", "label": label("urgency")},
     ]
 
 
@@ -224,7 +242,8 @@ def test_report_placeholders_for_sources_not_on_this_branch(env, family):
 
     assert body["notices"] == []
     assert body["metrics"] == []
-    assert body["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+    # 2026-11-12 사용자 답 "아직 기록이 적어요 (추천)" — T-76 전 임시값
+    assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
 
 
 def test_report_for_child_without_records_is_empty_progress(env, family):
@@ -243,9 +262,9 @@ def test_report_for_child_without_records_is_empty_progress(env, family):
 
 def test_report_counts_only_ended_sessions(env, family):
     guardian, child = family
-    env.seed_session(child["child_id"], status="ended", ended_at=T0, outcomes={"urgency": "found"})
+    env.seed_session(child["child_id"], status="ended", ended_at=T0, outcomes={"urgency": "found", "keep_secret": "missed"})
     env.seed_session(child["child_id"], status="stopped", ended_at=T0 + timedelta(days=1), outcomes={"keep_secret": "missed"})
-    env.seed_session(child["child_id"], status="in_progress", ended_at=None, outcomes={"advance_payment": "missed"})
+    env.seed_session(child["child_id"], status="in_progress", ended_at=None, outcomes={"keep_secret": "missed"})
 
     body = env.report(child["child_id"], guardian).json()
 
@@ -257,6 +276,7 @@ def test_report_does_not_mix_sibling_records(env, family):
     guardian, child = family
     sibling = env.new_child(guardian, nickname="바다")
     env.seed_session(sibling["child_id"], area="identity_lending", outcomes={"urgency": "missed"})
+    env.seed_session(sibling["child_id"], area="identity_lending", ended_at=T0 + timedelta(days=1), outcomes={"urgency": "missed"})
 
     body = env.report(child["child_id"], guardian).json()
 
@@ -267,6 +287,7 @@ def test_report_does_not_mix_sibling_records(env, family):
 def test_report_skips_weak_cue_missing_from_content(env, family):
     guardian, child = family
     env.seed_session(child["child_id"], outcomes={"removed_clue_x": "missed", "urgency": "missed"})
+    env.seed_session(child["child_id"], ended_at=T0 + timedelta(days=1), outcomes={"removed_clue_x": "missed", "urgency": "missed"})
 
     body = env.report(child["child_id"], guardian).json()
 
