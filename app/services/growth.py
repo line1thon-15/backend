@@ -70,7 +70,7 @@ class GrowthMetricsService:
         """
         return select_weak_cues(
             [
-                CueOutcome(cue_id=o.cue_id, outcome=o.outcome, judged_at=o.ended_at)
+                CueOutcome(cue_id=o.cue_id, outcome=o.outcome, ended_at=o.ended_at, session_id=o.session_id)
                 for o in self._repository.ended_cue_outcomes(child_id)
             ]
         )

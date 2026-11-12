@@ -235,6 +235,7 @@ class EndedCueOutcome:
     cue_id: str
     outcome: str  # found | missed
     ended_at: datetime  # UTC — 세션 종료 시각
+    session_id: UUID
 
 
 class PracticeRepository(Protocol):

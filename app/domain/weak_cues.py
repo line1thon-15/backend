@@ -1,22 +1,22 @@
 """더 연습이 필요한 단서(아이 Y8 — F-29 ①)·약점 단서(보호자 G3 — F-30 ①) 공통 규칙 (T-46).
 
-근거: 사용자 결정(2026-11-12) 원문 "2번 이상 + 최근 놓침 (추천)" — 설명 원문 "종료 세션에서 2번 이상
-놓친 단서 중, 가장 최근 판정이 '놓침'인 것만. 많이 놓친 순, 최대 3개. 나중에 찾으면 목록에서 빠져
-성장이 보여요." T-25·T-90이 이 함수를 재사용한다.
+근거: DECISIONS #122, Architecture "성장 계산 규칙" 더 연습이 필요한 단서 행(2026-11-12). 사용자 결정 원문
+"2번 이상 + 최근 놓침 (추천)" — 설명 원문 "종료 세션에서 2번 이상 놓친 단서 중, 가장 최근 판정이 '놓침'인
+것만. 많이 놓친 순, 최대 3개. 나중에 찾으면 목록에서 빠져 성장이 보여요." A19(T-90)·A11(T-25)이 함께 쓴다.
 
-입력은 종료(`status = ended`) 세션의 판정만 — 멈춘·진행 중 세션은 리포지토리가 넘기지 않는다.
-규칙에 없는 세부(결정적으로 정함):
-- 기간 제한 없음(종료 세션 누적 — 규칙에 기간이 없음). 그래서 시계를 쓰지 않는다.
-- 같은 시각 판정에 found·missed가 함께 있으면 found를 최근으로 본다(목록에서 빠짐).
-- 놓친 횟수 동점 → 마지막으로 놓친 시각이 최근인 순 → cue_id 오름차순.
+입력은 종료(`status = ended`) 세션의 `cue_results`만 — 멈춘·진행 중 세션은 리포지토리가 넘기지 않는다.
+기간 제한 없음(시계를 쓰지 않는다). architect 판단(#122, 사용자 확인 대상):
+- 놓친 수 동점 → 가장 최근 missed 세션의 ended_at이 늦은 순 → cue_id 오름차순.
+- 같은 단서에서 ended_at이 같은 세션이 둘 이상이면 session_id가 큰 쪽을 최근으로 본다.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 
-NEEDS_PRACTICE_MIN_MISSED = 2
-NEEDS_PRACTICE_MAX = 3
+WEAK_CUE_MIN_MISSES = 2
+WEAK_CUE_MAX = 3
 _OUTCOMES = frozenset({"found", "missed"})
 
 
@@ -24,7 +24,12 @@ _OUTCOMES = frozenset({"found", "missed"})
 class CueOutcome:
     cue_id: str
     outcome: str  # found | missed
-    judged_at: datetime  # 판정 시각(= 세션 종료 시각, tz 포함)
+    ended_at: datetime  # 판정한 세션의 종료 시각(tz 포함)
+    session_id: UUID
+
+
+def _recency(item: CueOutcome) -> tuple[datetime, int]:
+    return (item.ended_at, item.session_id.int)
 
 
 def select_weak_cues(outcomes: Sequence[CueOutcome]) -> tuple[str, ...]:
@@ -32,20 +37,18 @@ def select_weak_cues(outcomes: Sequence[CueOutcome]) -> tuple[str, ...]:
     for item in outcomes:
         if item.outcome not in _OUTCOMES:
             raise ValueError(f"unknown cue outcome: {item.outcome}")
-        if item.judged_at.tzinfo is None:
-            raise ValueError("judged_at needs a timezone-aware datetime")
+        if item.ended_at.tzinfo is None:
+            raise ValueError("ended_at needs a timezone-aware datetime")
         by_cue.setdefault(item.cue_id, []).append(item)
 
     picked: list[tuple[int, datetime, str]] = []
     for cue_id, items in by_cue.items():
-        misses = [i.judged_at for i in items if i.outcome == "missed"]
-        if len(misses) < NEEDS_PRACTICE_MIN_MISSED:
+        misses = [i for i in items if i.outcome == "missed"]
+        if len(misses) < WEAK_CUE_MIN_MISSES:
             continue
-        # 가장 최근 판정 — 같은 시각이면 found가 뒤(최근)로 오게 정렬
-        latest = max(items, key=lambda i: (i.judged_at, i.outcome == "found"))
-        if latest.outcome != "missed":
+        if max(items, key=_recency).outcome != "missed":
             continue
-        picked.append((len(misses), max(misses), cue_id))
+        picked.append((len(misses), max(m.ended_at for m in misses), cue_id))
 
     picked.sort(key=lambda p: (-p[0], -p[1].timestamp(), p[2]))
-    return tuple(cue_id for _, _, cue_id in picked[:NEEDS_PRACTICE_MAX])
+    return tuple(cue_id for _, _, cue_id in picked[:WEAK_CUE_MAX])
