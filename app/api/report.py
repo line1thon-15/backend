@@ -4,6 +4,7 @@
 (`extra="forbid"` — "보호자용 응답 금지 필드", DECISIONS #23).
 """
 
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
 from app.api.dependencies import require_guardian_role
+from app.services.growth import GrowthMetricsService
 from app.services.guardian_report import GuardianReportService
 
 router = APIRouter()
@@ -90,7 +92,11 @@ def get_guardian_report(
     guardian_id: UUID = Depends(require_guardian_role),
 ) -> GuardianReportResponse:
     service: GuardianReportService = request.app.state.guardian_report_service
+    # 소유 확인(404 CHILD_NOT_FOUND)이 먼저 — 그 뒤에만 지표를 계산한다(다른 보호자 아이 지표 미계산·미노출)
     report = service.get_report(guardian_id=guardian_id, child_id=child_id)
+    metrics_service: GrowthMetricsService = request.app.state.growth_metrics_service
+    metric_labels: Mapping[str, str] = request.app.state.metric_labels
+    metrics = metrics_service.metrics(report.child.child_id)
     return GuardianReportResponse(
         child=ChildRef(child_id=report.child.child_id, nickname=report.child.nickname),
         areas=[
@@ -113,8 +119,19 @@ def get_guardian_report(
             )
             for notice in report.notices
         ],
-        # 성장 지표 — T-46 병합(T-90) 때 연결, 그 전에는 빈 목록
-        metrics=[],
+        # 성장 지표 — T-46 계산 서비스 결과(T-90 연결). practice_turns는 첫 답 kind만 읽는다(ADR-0016 R2)
+        metrics=[
+            MetricView(
+                metric_id=metric.metric_id,
+                label=metric_labels[metric.metric_id],
+                status=metric.status,
+                level=metric.level,
+                current=metric.current,
+                previous=metric.previous,
+                trend=[TrendPoint(date=point.date, value=point.value) for point in metric.trend],
+            )
+            for metric in metrics
+        ],
         summary=GuardianSummaryView(
             status=report.summary.status,
             unit=report.summary.unit,

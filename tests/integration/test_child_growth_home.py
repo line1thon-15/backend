@@ -31,6 +31,13 @@ METRIC_IDS = ["missed_ratio", "first_seen_accuracy", "ahead_of_ai_ratio"]
 GROWTH_KEYS = {"areas", "streak_days", "needs_practice_cues", "metrics"}
 HOME_KEYS = {"areas", "badges", "streak_days", "trusted_contact"}
 METRIC_KEYS = {"metric_id", "label", "status", "level", "current", "previous", "trend"}
+# 2026-11-12 사용자 답 "쉬운 말 문구 (추천)" — 선택지 설명 원문 "① '놓친 신호' ② '처음 본 상황에서 찾은 신호'
+# ③ '먼저 알아챈 횟수'. 느린학습자용 쉬운 말(N-03). 아이 Y8과 보호자 G3가 같은 문구를 써요."
+EXPECTED_LABELS = {
+    "missed_ratio": "놓친 신호",
+    "first_seen_accuracy": "처음 본 상황에서 찾은 신호",
+    "ahead_of_ai_ratio": "먼저 알아챈 횟수",
+}
 
 
 def kst(month: int, day: int, hour: int = 12) -> datetime:
@@ -242,7 +249,7 @@ def test_growth_assembles_badges_streak_metrics_and_needs_practice_cues(env, chi
     assert body["metrics"] == [
         {
             "metric_id": "missed_ratio",
-            "label": "missed_ratio",
+            "label": "놓친 신호",
             "status": "ok",
             "level": None,
             "current": 0.0,
@@ -251,7 +258,7 @@ def test_growth_assembles_badges_streak_metrics_and_needs_practice_cues(env, chi
         },
         {
             "metric_id": "first_seen_accuracy",
-            "label": "first_seen_accuracy",
+            "label": "처음 본 상황에서 찾은 신호",
             "status": "ok",
             "level": None,
             "current": 1.0,
@@ -260,7 +267,7 @@ def test_growth_assembles_badges_streak_metrics_and_needs_practice_cues(env, chi
         },
         {
             "metric_id": "ahead_of_ai_ratio",
-            "label": "ahead_of_ai_ratio",
+            "label": "먼저 알아챈 횟수",
             "status": "ok",
             "level": None,
             "current": 1.0,
@@ -270,8 +277,16 @@ def test_growth_assembles_badges_streak_metrics_and_needs_practice_cues(env, chi
     ]
 
 
+def test_metric_label_constant_is_fixed_per_metric_id():
+    """설정 상수 1곳(app.domain.metrics.METRIC_LABELS) — 지표 ID별 문구 대응을 고정한다."""
+    from app.domain.metrics import METRIC_IDS, METRIC_LABELS
+
+    assert dict(METRIC_LABELS) == EXPECTED_LABELS
+    assert set(METRIC_LABELS) == set(METRIC_IDS)
+
+
 def test_growth_metric_labels_are_injected_constants(tmp_path):
-    """`MetricView.label`은 설정 상수(Architecture) — 문구 미정이라 주입받는다. 주입하면 그 값이 실린다."""
+    """`MetricView.label`은 설정 상수(Architecture) — 주입하면 그 값이 실린다(기본값은 METRIC_LABELS)."""
     labels = {"missed_ratio": "L1", "first_seen_accuracy": "L2", "ahead_of_ai_ratio": "L3"}
     app = create_app(
         Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'lbl.db').as_posix()}", ai_client="fake"),
@@ -303,6 +318,7 @@ def test_growth_without_records_is_empty_and_insufficient(env, child):
     assert body["streak_days"] == 0
     assert body["needs_practice_cues"] == []
     assert [m["metric_id"] for m in body["metrics"]] == METRIC_IDS
+    assert [m["label"] for m in body["metrics"]] == [EXPECTED_LABELS[i] for i in METRIC_IDS]
     for metric in body["metrics"]:
         assert set(metric) == METRIC_KEYS
         assert metric["status"] == "insufficient"

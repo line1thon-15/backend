@@ -26,6 +26,7 @@ from app.content.loader import load_content
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.session import make_engine, make_session_factory
+from app.domain.metrics import METRIC_LABELS
 from app.domain.practice_result import CARD_LEVEL_BY_KEY
 from app.repositories.auth import SqlAlchemyAuthRepository
 from app.repositories.badges import SqlAlchemyBadgeRepository
@@ -37,7 +38,7 @@ from app.repositories.onboarding import SqlAlchemyOnboardingRepository
 from app.repositories.practice import SqlAlchemyPracticeRepository
 from app.services.auth import AuthService
 from app.services.badges import BadgeService
-from app.services.child_views import METRIC_LABELS, ChildViewsService
+from app.services.child_views import ChildViewsService
 from app.services.children import ChildrenService
 from app.services.growth import GrowthMetricsService
 from app.services.guardian_report import GuardianReportService
@@ -190,11 +191,14 @@ def create_app(
     )
 
     # 아이용 홈 A13·성장 A19 조립 (T-90) — 계산은 T-45 BadgeService·T-46 GrowthMetricsService, 시계 주입
-    practice_repository = SqlAlchemyPracticeRepository(session_factory)
+    # 같은 지표 서비스를 보호자 리포트 A11 `metrics`도 쓴다(2026-11-12 사용자 답 "T-90에서 연결 (추천)")
+    growth_metrics_service = GrowthMetricsService(SqlAlchemyPracticeRepository(session_factory), clock=clock)
+    app.state.growth_metrics_service = growth_metrics_service
+    app.state.metric_labels = metric_labels
     badge_repository = SqlAlchemyBadgeRepository(session_factory)
     app.state.child_views_service = ChildViewsService(
         badge_service=BadgeService(badge_repository, clock=clock),
-        metrics_service=GrowthMetricsService(practice_repository, clock=clock),
+        metrics_service=growth_metrics_service,
         sessions=badge_repository,
         contacts=SqlAlchemyTrustedContactRepository(session_factory),
         areas=AREA_IDS,

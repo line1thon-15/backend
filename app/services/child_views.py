@@ -16,13 +16,9 @@ from typing import Protocol
 from uuid import UUID
 
 from app.domain.guardian_report import EndedSession, area_progress
-from app.domain.metrics import MetricResult
+from app.domain.metrics import METRIC_LABELS, MetricResult
 from app.services.badges import Badge, BadgeRepository, BadgeService
 from app.services.growth import GrowthMetricsService
-
-# MetricView.label 설정 상수 — Architecture는 "설정 상수"라고만 하고 문구가 없다(Open Question).
-# 문구가 정해질 때까지 비워 두고, 비어 있으면 metric_id를 그대로 싣는다(문구를 지어내지 않음).
-METRIC_LABELS: Mapping[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -114,7 +110,7 @@ class ChildViewsService:
                 if cue_id in self._cue_cards
             ),
             metrics=tuple(
-                LabeledMetric(label=self._metric_labels.get(m.metric_id, m.metric_id), result=m)
+                LabeledMetric(label=self._metric_labels[m.metric_id], result=m)
                 for m in self._metrics_service.metrics(child_id)
             ),
         )
