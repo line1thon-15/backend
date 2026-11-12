@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 2026-11-12 T-91 A17 동시 답 충돌과 늦은 중복 답 방지(재작업, T-15 완료분; 구현 d77d3e6·4c139e0, 설계 DECISIONS #128·#130, 문서 7dcc17a) — `POST /api/v1/practice/sessions/{session_id}/turns`(`app/api/practice.py`, `app/services/practice.py`): 요청이 `{choice_id, turn_index}`이고 둘 다 필수. `turn_index`가 현재 턴이 아니면 409 `TURN_ALREADY_ANSWERED`(늦게 도착한 중복 답 — 저장 0건·AI 호출 0회). 동시 충돌 시 세션을 다시 읽어 진행 중이면 409 `TURN_ALREADY_ANSWERED`, 끝났으면 `SESSION_ENDED`, 멈췄으면 `SESSION_STOPPED`. 처리 순서: 형식 422 → 404 → 끝남·멈춤 409 → `turn_index` 불일치 409 → 422 `INVALID_CHOICE` → 판정. 테스트 `tests/integration/test_practice_sessions.py`, T-90 병합 후 677 passed(메인 세션 직접 확인)
 - 2026-11-12 T-90 아이용 성장·홈 API(구현 77220e3·8479071) — A19 `GET /api/v1/me/growth`(배지·연속 기록·지표 3개·더 연습이 필요한 단서)와 A13 `GET /api/v1/me/home`(영역·배지·연속 기록·믿는 사람 연락처)(`app/api/me.py`, `app/services/child_views.py`, `app/repositories/child_home.py`). 보호자 세션은 403 `FORBIDDEN_ROLE`. 지표 문구 `METRIC_LABELS`: "놓친 신호" / "처음 본 상황에서 찾은 신호" / "먼저 알아챈 횟수"(`app/domain/metrics.py`). 보호자 리포트 A11 `metrics`가 채워짐(아래 T-25 제한 ②의 "빈 목록" 해소). 테스트 656 passed(인용)
 - 2026-11-12 T-90 알려진 제한 — ① 기존 아이 API는 보호자 세션에 401을 반환하고 신규 A13·A19만 403이다. ② A19 오류 코드 규격이 Architecture에 없다
 - 2026-11-12 T-45 배지·연속 기록 계산 계층(브랜치 `feat/T-45-46-25-growth-report`, 구현 a2bdb62, 병합 df020d2) — `app/domain/badges.py`·`app/domain/service_time.py`, `app/services/badges.py`, `app/repositories/badges.py`. 계산만 있고 공개 API는 없음
@@ -41,6 +42,7 @@
 - 2026-11-08 프로젝트 초기화 (start_coding 템플릿) — 날짜는 최초 커밋 5070035 기준
 
 ### Changed
+- 2026-11-12 T-91 A17 요청 형식 변경 — `turn_index`가 없거나 음수이거나 정수가 아니면 422 `VALIDATION_ERROR`. 기존에 `choice_id`만 보내던 클라이언트는 422를 받는다(프론트 반영은 T-18 범위: `TURN_ALREADY_ANSWERED`면 A16으로 현재 턴 재조회, 근거: docs/Tasks.md T-91 행). 동시 충돌 시 진행 중인데 `SESSION_ENDED`가 나가던 동작이 `TURN_ALREADY_ANSWERED`로 바뀜
 - 2026-11-11 T-86 AI 포트·Fake를 AI 계약 v1로 재정의(브랜치 `feature/T-86-ai-contract-v1-port`, 미커밋) — `app/ai_client/ports.py`는 `PracticeAI`(`variant`·`start`·`turn`·`judge`·`feedback`)와 `SummaryAI`(`summary`)로, `fake.py`는 `FakePracticeAI`·`FakeSummaryAI`로 바뀌고 `opening`·`ScenarioSpec`·`TurnResult`·`OpeningResult`는 삭제됨(DECISIONS #96·#97·#98·#104·#108, ADR-0017). 영역 ID는 `scam`·`identity_lending`·`friend_pressure`로 변경(옛 `name_lending`·`friend_request` 삭제). T-85가 추가한 `TurnResult` 테스트 3개는 모델 삭제로 함께 제거. pytest 55 → 113 passed(QA 직접 재실행 확인)
 - 2026-11-09 T-85 `TurnResult.is_terminal` 삭제(브랜치 `feature/T-85-remove-is-terminal`, 미커밋) — `app/ai_client/ports.py`·`fake.py`에서 필드·인자 제거. 연습 종료 판정은 백엔드 규칙만 한다(DECISIONS #81, ADR-0015). AI가 `is_terminal`을 아직 보내도 오류 없이 파싱하고 값은 남기지 않음(전환 허용). `tests/unit/test_fake_practice_ai.py`에 "필드 없음"·"AI 값 무시(True/False)" 테스트 추가로 pytest 35 → 38 passed(QA 재실행 확인)
 - 2026-10-27 역할 단일 원본을 `.agents/roles/*.role.md`로 통합 — `.claude/agents/*.md`와 `.codex/agents/*.toml`은 원본을 가리키는 연결 파일로 축소
