@@ -335,7 +335,9 @@ class PracticeService:
 
     # ---- A17 ------------------------------------------------------------------
 
-    def answer(self, *, child_id: UUID, session_id: UUID, choice_id: str) -> SessionOutput:
+    def answer(
+        self, *, child_id: UUID, session_id: UUID, choice_id: str, turn_index: int
+    ) -> SessionOutput:
         record = self._repository.get_session(session_id, child_id)
         if record is None:
             raise _session_not_found()
@@ -345,6 +347,10 @@ class PracticeService:
             raise _session_stopped()
 
         current = record.turns[-1]
+        if turn_index != current.turn_index:
+            # 이미 답한 턴에 대한 늦은 요청(더블탭 두 번째 등) — 선택지 id는 매 턴 c1~c3이라
+            # choice_id만으로는 다음 턴의 정당한 답과 구별할 수 없다 (T-91 사용자 결정 2)
+            raise _turn_already_answered()
         chosen = next((choice for choice in current.choices if choice["id"] == choice_id), None)
         if chosen is None:
             raise AppError(code="INVALID_CHOICE", status_code=422, message="choice is not in the current turn")

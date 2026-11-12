@@ -129,8 +129,15 @@ class Env:
         assert response.status_code == 201, response.text
         return response.json()
 
-    def answer(self, session_id: str, choice_id: str):
-        return self.client.post(f"/api/v1/practice/sessions/{session_id}/turns", json={"choice_id": choice_id})
+    def answer(self, session_id: str, choice_id: str, turn_index: int | None = None):
+        """A17 `{choice_id, turn_index}` (T-91). turn_index를 안 주면 DB의 현재(마지막) 턴 번호를 담는다 —
+        프론트가 A15·A16 응답의 `turn.turn_index`를 그대로 보내는 것과 같다."""
+        if turn_index is None:
+            turn_index = self.current_turn_index(session_id)
+        return self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/turns",
+            json={"choice_id": choice_id, "turn_index": turn_index},
+        )
 
     def get(self, session_id: str):
         return self.client.get(f"/api/v1/practice/sessions/{session_id}")
@@ -150,6 +157,16 @@ class Env:
                     .order_by(PracticeTurn.turn_index)
                 )
             )
+
+    def current_turn_index(self, session_id: str) -> int:
+        """현재(마지막) 턴 번호 — 없는 세션·남의 세션이면 0(요청 형식만 맞춘다)."""
+        try:
+            key = UUID(session_id)
+        except ValueError:
+            return 0
+        with self.session_factory() as db:
+            value = db.scalar(select(func.max(PracticeTurn.turn_index)).where(PracticeTurn.session_id == key))
+        return 0 if value is None else value
 
     def cue_rows(self, session_id: str) -> list[CueResult]:
         with self.session_factory() as db:
@@ -721,7 +738,22 @@ def test_choice_not_in_current_turn_is_422(env, choice_id):
     assert env.turn_rows(body["session_id"])[0].chosen_choice_id is None
 
 
-@pytest.mark.parametrize("payload", [{}, {"choice_id": ""}, {"choice_id": "c1", "emotion": 2}])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"choice_id": "", "turn_index": 0},
+        {"choice_id": "c1", "turn_index": 0, "emotion": 2},
+        # turn_index 필수·0 이상 정수 (T-91 — 누락·음수·형식 오류는 422 VALIDATION_ERROR)
+        {"choice_id": "c1"},
+        {"turn_index": 0},
+        {"choice_id": "c1", "turn_index": None},
+        {"choice_id": "c1", "turn_index": -1},
+        {"choice_id": "c1", "turn_index": "0"},
+        {"choice_id": "c1", "turn_index": 0.5},
+        {"choice_id": "c1", "turn_index": True},
+    ],
+)
 def test_malformed_turn_request_is_422_validation(env, payload):
     env.login_child(grade="H1")
     body = env.started()
@@ -1166,7 +1198,12 @@ def _race(
             if inner_turn_status is not None:
                 env.ai.turn_status = inner_turn_status
             try:
-                service.answer(child_id=child_id, session_id=UUID(session_id), choice_id=inner_choice)
+                service.answer(
+                    child_id=child_id,
+                    session_id=UUID(session_id),
+                    choice_id=inner_choice,
+                    turn_index=env.current_turn_index(session_id),
+                )
             finally:
                 env.ai.turn_status = saved
             state["snapshot"] = _snapshot(env, session_id)
@@ -1358,6 +1395,146 @@ def test_ending_answer_racing_a_stop_is_session_stopped(env):
     assert env.cue_rows(body["session_id"]) == []
     assert env.ai.names() == ["judge", "turn"]
     _assert_loser_saved_nothing(env, body["session_id"], race)
+
+
+# ---- (d) 늦은 중복 — 요청 turn_index ≠ 현재 턴 → 409 TURN_ALREADY_ANSWERED (T-91 사용자 결정 2) ----------
+# 선택지 id는 매 턴 c1·c2·c3이라 choice_id만으로는 늦은 중복과 다음 턴의 정당한 답을 구별할 수 없다.
+# 처리 순서: 404 → 409(ended·stopped) → turn_index 불일치 409 → 422 INVALID_CHOICE → 판정.
+
+
+def _db_state(env, session_id: str) -> tuple:
+    row = env.session_row(session_id)
+    turns = tuple(
+        (turn.turn_index, turn.ai_line, turn.chosen_choice_id, turn.ai_status) for turn in env.turn_rows(session_id)
+    )
+    return (row.status, row.ended_at, turns, len(env.cue_rows(session_id)))
+
+
+def test_late_duplicate_with_previous_turn_index_is_turn_already_answered(env):
+    # 더블탭 두 번째 요청이 첫 요청 처리 뒤에 도착(같은 choice_id, 이전 turn_index 0) → 409, AI 0회, 저장 0건
+    env.login_child(grade="H1")
+    body = env.started()
+    doubtful = choice_id_of(body, "doubtful", env)
+    first = env.answer(body["session_id"], doubtful, turn_index=0)
+    assert first.status_code == 200
+    before = _db_state(env, body["session_id"])
+    env.ai.calls.clear()
+
+    late = env.answer(body["session_id"], doubtful, turn_index=0)
+
+    assert late.status_code == 409
+    assert late.json()["error"]["code"] == "TURN_ALREADY_ANSWERED"
+    assert env.ai.calls == []
+    assert _db_state(env, body["session_id"]) == before
+    assert env.turn_rows(body["session_id"])[1].chosen_choice_id is None
+
+
+def test_next_turn_answer_with_same_choice_id_is_accepted(env):
+    # 다음 턴에서 같은 choice_id를 정당하게 고름(turn_index 1) → 200, turn 1에 기록
+    env.login_child(grade="H1")
+    body = env.started()
+    doubtful = choice_id_of(body, "doubtful", env)
+    first = env.answer(body["session_id"], doubtful, turn_index=0).json()
+    assert first["turn"]["turn_index"] == 1
+    same_id = doubtful
+    kind = next(c["kind"] for c in env.turn_rows(body["session_id"])[1].choices if c["id"] == same_id)
+
+    response = env.answer(body["session_id"], same_id, turn_index=first["turn"]["turn_index"])
+
+    assert response.status_code == 200
+    assert env.turn_rows(body["session_id"])[1].chosen_choice_id == same_id
+    expected = "ended" if kind == "correct" else "in_progress"
+    assert response.json()["status"] == expected
+
+
+@pytest.mark.parametrize("stale_index", [0, 2, 99])
+def test_turn_index_not_current_is_turn_already_answered(env, stale_index):
+    # 현재 턴(1)이 아닌 번호 — 이전·미래 모두 409, AI 0회, 저장 0건
+    env.login_child(grade="H1")
+    body = env.started()
+    env.answer(body["session_id"], choice_id_of(body, "doubtful", env), turn_index=0)
+    before = _db_state(env, body["session_id"])
+    env.ai.calls.clear()
+
+    response = env.answer(body["session_id"], "c1", turn_index=stale_index)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "TURN_ALREADY_ANSWERED"
+    assert env.ai.calls == []
+    assert _db_state(env, body["session_id"]) == before
+
+
+def test_turn_index_mismatch_precedes_invalid_choice(env):
+    # 처리 순서: turn_index 불일치 409가 422 INVALID_CHOICE보다 먼저
+    env.login_child(grade="H1")
+    body = env.started()
+    env.answer(body["session_id"], choice_id_of(body, "doubtful", env), turn_index=0)
+    env.ai.calls.clear()
+
+    response = env.answer(body["session_id"], "zz", turn_index=0)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "TURN_ALREADY_ANSWERED"
+    assert env.ai.calls == []
+
+
+def test_unknown_choice_on_current_turn_is_still_422(env):
+    # (e) 현재 턴 번호 + 모르는 choice_id → 그대로 422 INVALID_CHOICE
+    env.login_child(grade="H1")
+    body = env.started()
+    env.answer(body["session_id"], choice_id_of(body, "doubtful", env), turn_index=0)
+    before = _db_state(env, body["session_id"])
+    env.ai.calls.clear()
+
+    response = env.answer(body["session_id"], "zz", turn_index=1)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_CHOICE"
+    assert env.ai.calls == []
+    assert _db_state(env, body["session_id"]) == before
+
+
+def test_stale_turn_index_on_ended_session_is_session_ended(env):
+    # 409 ended가 turn_index 검사보다 먼저
+    env.login_child(grade="H1")
+    body = env.started()
+    correct = choice_id_of(body, "correct", env)
+    env.answer(body["session_id"], correct, turn_index=0)
+    env.ai.calls.clear()
+
+    response = env.answer(body["session_id"], correct, turn_index=0)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+    assert env.ai.calls == []
+
+
+def test_stale_turn_index_on_stopped_session_is_session_stopped(env):
+    # 409 stopped가 turn_index 검사보다 먼저
+    env.login_child(grade="H1")
+    body = env.started()
+    env.ai.turn_status = "safe_reply"
+    doubtful = choice_id_of(body, "doubtful", env)
+    env.answer(body["session_id"], doubtful, turn_index=0)
+    env.ai.calls.clear()
+
+    response = env.answer(body["session_id"], doubtful, turn_index=0)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_STOPPED"
+    assert env.ai.calls == []
+
+
+def test_stale_turn_index_on_other_childs_session_is_404(env):
+    # 404가 turn_index 검사보다 먼저
+    env.login_child(grade="H1")
+    body = env.started()
+    env.login_child(grade="H1")
+
+    response = env.answer(body["session_id"], "c1", turn_index=7)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
 
 
 def test_cue_results_reject_duplicate_session_cue(env):
