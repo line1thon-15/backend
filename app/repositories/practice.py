@@ -3,15 +3,18 @@
 A17의 저장은 메서드 하나 = 한 트랜잭션이다(DECISIONS #82·#85). 서비스는 AI 호출과 응답 검증이 성공한 뒤에만 부른다.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Child, ChildSettings, CueResult, PracticeSession, PracticeTurn
 from app.services.ports import (
+    EndedCueOutcome,
+    EndedSessionStats,
+    FirstAnswerKind,
     NewCueResult,
     NewPracticeSession,
     NewPracticeTurn,
@@ -21,6 +24,13 @@ from app.services.ports import (
     PracticeStateConflict,
     PracticeTurnRecord,
 )
+
+
+def _as_utc(moment: datetime) -> datetime:
+    """조회 경계는 UTC로 맞춰 넘긴다. SQLite는 tz 없이 돌려주므로 읽은 값은 UTC로 붙인다(저장값이 UTC)."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
 
 
 def _turn_row(session_id: UUID, turn: NewPracticeTurn) -> PracticeTurn:
@@ -275,3 +285,117 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
             db.add(_turn_row(session_id, stop_turn))
 
         self._write(work)
+
+    # ---- 성장 지표 (T-46) ------------------------------------------------------
+    # 기간은 [ended_from, ended_to) — 대상은 status = ended 세션만(in_progress·stopped 제외, #113).
+
+    def ended_session_stats(
+        self,
+        child_id: UUID,
+        ended_from: datetime,
+        ended_to: datetime,
+    ) -> list[EndedSessionStats]:
+        found = func.coalesce(func.sum(case((CueResult.outcome == "found", 1), else_=0)), 0)
+        missed = func.coalesce(func.sum(case((CueResult.outcome == "missed", 1), else_=0)), 0)
+        with self._session_factory() as db:
+            rows = db.execute(
+                select(
+                    PracticeSession.id,
+                    PracticeSession.scenario_id,
+                    PracticeSession.mode,
+                    PracticeSession.is_normal,
+                    PracticeSession.ended_at,
+                    found,
+                    missed,
+                )
+                .outerjoin(CueResult, CueResult.session_id == PracticeSession.id)
+                .where(
+                    PracticeSession.child_id == child_id,
+                    PracticeSession.status == "ended",
+                    PracticeSession.ended_at >= _as_utc(ended_from),
+                    PracticeSession.ended_at < _as_utc(ended_to),
+                )
+                .group_by(PracticeSession.id)
+            ).all()
+        return [
+            EndedSessionStats(
+                session_id=session_id,
+                scenario_id=scenario_id,
+                mode=mode,
+                is_normal=is_normal,
+                ended_at=_as_utc(ended_at),
+                found=int(found_count),
+                missed=int(missed_count),
+            )
+            for session_id, scenario_id, mode, is_normal, ended_at, found_count, missed_count in rows
+        ]
+
+    def first_session_ids(
+        self,
+        child_id: UUID,
+        scenario_ids: list[str],
+    ) -> dict[str, UUID]:
+        """시나리오마다 그 아이가 가장 먼저 받은 세션 — 상태·origin·기간 무관(멈춤·진행 중도 "받음")."""
+        if not scenario_ids:
+            return {}
+        with self._session_factory() as db:
+            rows = db.execute(
+                select(PracticeSession.scenario_id, PracticeSession.id)
+                .where(
+                    PracticeSession.child_id == child_id,
+                    PracticeSession.scenario_id.in_(sorted(set(scenario_ids))),
+                )
+                .order_by(PracticeSession.started_at, PracticeSession.draw_index, PracticeSession.id)
+            ).all()
+        first: dict[str, UUID] = {}
+        for scenario_id, session_id in rows:
+            first.setdefault(scenario_id, session_id)
+        return first
+
+    def first_answer_kinds(
+        self,
+        child_id: UUID,
+        ended_from: datetime,
+        ended_to: datetime,
+    ) -> list[FirstAnswerKind]:
+        """보호자 경로 practice_turns 예외 1개(ADR-0016, DECISIONS #87·#93).
+
+        turn_index 0 행의 session_id·chosen_choice_id·choices만 SELECT한다(ai_line SELECT 금지 — R2).
+        choices JSON은 여기서만 파싱해 고른 선택지의 kind만 꺼내고 버린다. 고른 선택지가 없거나
+        목록에 없으면 그 세션은 반환하지 않는다(domain이 MissingFirstAnswerKind로 처리).
+        """
+        with self._session_factory() as db:
+            rows = db.execute(
+                select(PracticeTurn.session_id, PracticeTurn.chosen_choice_id, PracticeTurn.choices)
+                .join(PracticeSession, PracticeSession.id == PracticeTurn.session_id)
+                .where(
+                    PracticeTurn.turn_index == 0,
+                    PracticeSession.child_id == child_id,
+                    PracticeSession.status == "ended",
+                    PracticeSession.ended_at >= _as_utc(ended_from),
+                    PracticeSession.ended_at < _as_utc(ended_to),
+                )
+            ).all()
+        kinds: list[FirstAnswerKind] = []
+        for session_id, chosen_choice_id, choices in rows:
+            if chosen_choice_id is None:
+                continue
+            kind = next((c.get("kind") for c in choices if c.get("id") == chosen_choice_id), None)
+            if isinstance(kind, str):
+                kinds.append(FirstAnswerKind(session_id=session_id, kind=kind))
+        return kinds
+
+    def ended_cue_outcomes(self, child_id: UUID) -> list[EndedCueOutcome]:
+        """종료 세션의 단서 판정 전부(기간 제한 없음) — 멈춘·진행 중 세션 제외, practice_turns 읽지 않음."""
+        with self._session_factory() as db:
+            rows = db.execute(
+                select(CueResult.cue_id, CueResult.outcome, PracticeSession.ended_at, CueResult.session_id)
+                .join(PracticeSession, PracticeSession.id == CueResult.session_id)
+                .where(PracticeSession.child_id == child_id, PracticeSession.status == "ended")
+            ).all()
+        return [
+            EndedCueOutcome(
+                cue_id=cue_id, outcome=outcome, ended_at=_as_utc(ended_at), session_id=session_id
+            )
+            for cue_id, outcome, ended_at, session_id in rows
+        ]

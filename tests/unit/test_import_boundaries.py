@@ -124,3 +124,52 @@ def test_import_inside_function_is_detected(tmp_path):
     _write(tmp_path, "app/domain/rules.py", "def f():\n    import sqlalchemy\n    return sqlalchemy\n")
 
     assert any(v.startswith("④") for v in find_violations(tmp_path))
+
+
+# ==== ⑤ 보호자 경로 practice_turns 예외 강제 R4 (T-46 — ADR-0016, DECISIONS #87·#93) ====
+# 리포트·성장 서비스 모듈이 부르는 리포지토리 메서드는 허용 목록뿐이다. 그중 practice_turns를 읽는 것은
+# first_answer_kinds 하나(나머지는 practice_sessions·cue_results만 — 통합 테스트가 SQL로 확인).
+GROWTH_SERVICE_PATTERNS = ("app/services/growth*.py", "app/services/report*.py")
+GROWTH_REPOSITORY_METHODS = frozenset(
+    {"ended_session_stats", "first_session_ids", "first_answer_kinds", "ended_cue_outcomes"}
+)
+
+
+def find_growth_repository_violations(root: Path) -> list[str]:
+    violations: list[str] = []
+    for pattern in GROWTH_SERVICE_PATTERNS:
+        for path in sorted(root.glob(pattern)):
+            rel = path.relative_to(root).as_posix()
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Attribute)
+                    and node.value.attr == "_repository"
+                    and node.attr not in GROWTH_REPOSITORY_METHODS
+                ):
+                    violations.append(f"⑤ {rel}: 허용 목록 밖 리포지토리 메서드 {node.attr}")
+    return violations
+
+
+def test_real_growth_services_use_only_allowed_repository_methods():
+    assert (REPO_ROOT / "app/services/growth.py").exists()
+    assert find_growth_repository_violations(REPO_ROOT) == []
+
+
+def test_allowed_growth_repository_calls_pass(tmp_path):
+    _write(
+        tmp_path,
+        "app/services/growth.py",
+        "class S:\n    def f(self):\n        return self._repository.first_answer_kinds(1, 2, 3)\n",
+    )
+
+    assert find_growth_repository_violations(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel", ["app/services/growth.py", "app/services/report.py"])
+def test_growth_service_reading_turns_is_detected(tmp_path, rel):
+    _write(tmp_path, rel, "class S:\n    def f(self):\n        return self._repository.get_session(1, 2)\n")
+
+    violations = find_growth_repository_violations(tmp_path)
+
+    assert any(v.startswith("⑤") and rel in v for v in violations), violations
