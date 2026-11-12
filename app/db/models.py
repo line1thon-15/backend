@@ -2,15 +2,18 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    JSON,
     SmallInteger,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -79,6 +82,57 @@ class Child(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
+        nullable=False,
+    )
+
+
+class ChildSettings(Base):
+    __tablename__ = "child_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "font_scale IN ('normal', 'large', 'xlarge')",
+            name="ck_child_settings_font_scale",
+        ),
+    )
+
+    child_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("children.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    font_scale: Mapped[str] = mapped_column(
+        String(16),
+        default="normal",
+        nullable=False,
+    )
+    high_contrast: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    tts_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    trusted_contact_name: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    trusted_contact_phone: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    favorite_apps: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        server_default=text("'[]'"),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 

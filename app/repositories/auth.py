@@ -93,6 +93,24 @@ class SqlAlchemyAuthRepository:
         with self._session_factory() as session:
             return session.scalar(query)
 
+    def find_child_id_for_active_session(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> UUID | None:
+        query = (
+            select(Child.id)
+            .join(AuthSession, AuthSession.subject_id == Child.id)
+            .where(
+                AuthSession.token_hash == token_hash,
+                AuthSession.subject_type == "child",
+                AuthSession.expires_at > now,
+                AuthSession.revoked_at.is_(None),
+            )
+        )
+        with self._session_factory() as session:
+            return session.scalar(query)
+
     def find_child_by_link_code(
         self,
         link_code: str,
