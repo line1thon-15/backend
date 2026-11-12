@@ -206,6 +206,28 @@ class NewCueResult:
     outcome: str  # found | missed
 
 
+@dataclass(frozen=True)
+class EndedSessionStats:
+    """성장 지표용 종료 세션 집계 (T-46) — practice_sessions·cue_results만, 문장·선택지 없음."""
+
+    session_id: UUID
+    scenario_id: str
+    mode: str
+    is_normal: bool
+    ended_at: datetime  # UTC
+    found: int
+    missed: int
+
+
+@dataclass(frozen=True)
+class FirstAnswerKind:
+    """첫 답(turn_index 0)에서 고른 선택지의 kind — 보호자 경로 practice_turns 예외의 유일한 반환형
+    (ADR-0016 R1, DECISIONS #93). 문자열 내용 필드를 더하지 않는다."""
+
+    session_id: UUID
+    kind: str
+
+
 class PracticeRepository(Protocol):
     def get_child_profile(self, child_id: UUID) -> PracticeChildProfile | None: ...
 
@@ -260,3 +282,25 @@ class PracticeRepository(Protocol):
         stop_turn: NewPracticeTurn,
         stopped_at: datetime,
     ) -> None: ...
+
+    # ---- 성장 지표 (T-46) — 아이(A19)·보호자(A11) 경로 공통 ----
+
+    def ended_session_stats(
+        self,
+        child_id: UUID,
+        ended_from: datetime,
+        ended_to: datetime,
+    ) -> list[EndedSessionStats]: ...
+
+    def first_session_ids(
+        self,
+        child_id: UUID,
+        scenario_ids: list[str],
+    ) -> dict[str, UUID]: ...
+
+    def first_answer_kinds(
+        self,
+        child_id: UUID,
+        ended_from: datetime,
+        ended_to: datetime,
+    ) -> list[FirstAnswerKind]: ...
