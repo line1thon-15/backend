@@ -70,11 +70,17 @@ def test_card_level_rejects_non_signal_level_value(value):
         card_level("K1", {"K1": value})
 
 
-def test_default_mapping_is_empty_until_oq63():
-    # 값을 지어내지 않는다 — PRD OQ 63·24 답 전까지 설정 상수는 비어 있다
-    assert dict(CARD_LEVEL_BY_KEY) == {}
-    with pytest.raises(CardLevelUndefined):
-        card_level("K1", CARD_LEVEL_BY_KEY)
+@pytest.mark.parametrize(
+    ("key", "level"),
+    [("K1", "green"), ("K2", "yellow"), ("K3", "green"), ("K4", "green"), ("K5", "yellow")],
+)
+def test_default_mapping_follows_oq63_decision(key, level):
+    # T-89 ① — PRD OQ 63 ① 사용자 확정 "판단 결과 기준 (추천)" (DECISIONS #120)
+    assert card_level(key, CARD_LEVEL_BY_KEY) == level
+
+
+def test_default_mapping_has_exactly_five_keys():
+    assert set(CARD_LEVEL_BY_KEY) == {"K1", "K2", "K3", "K4", "K5"}
 
 
 # ---- 다시 도전 가능 여부 (F-12: 직전과 platform 또는 tone이 1개 이상 다른 조합이 남았는가) -------

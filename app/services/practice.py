@@ -466,6 +466,15 @@ class PracticeService:
 
         # 404·409 확인 뒤에만 AI를 부른다 (#75 ⑤)
         stored = self._repository.get_cue_results(record.session_id)
+        # 카드 level 매핑 확인은 feedback 호출 전 — 값이 없으면 AI 호출 없이 500 (#120, T-89)
+        try:
+            levels = {
+                card_result: self._card_level(record, card_result)
+                for card_result in (*set(stored.values()), None)
+            }
+        except CardLevelUndefined as exc:
+            logger.error("practice result card level undefined error_type=%s", type(exc).__name__)
+            raise AppError(code="INTERNAL", status_code=500, message="internal server error") from exc
         try:
             response = self._ai.feedback(
                 FeedbackRequest(
@@ -484,14 +493,10 @@ class PracticeService:
             # 부분 응답 없음 — 결과 전체 503 (#75 ⑤)
             raise _ai_unavailable() from exc
 
-        try:
-            cards = tuple(
-                ResultCardOutput(level=self._card_level(record, card.result), sentence=card.text)
-                for card in response.cards
-            ) + (ResultCardOutput(level=self._card_level(record, None), sentence=response.closing_line),)
-        except CardLevelUndefined as exc:
-            logger.error("practice result card level undefined error_type=%s", type(exc).__name__)
-            raise AppError(code="INTERNAL", status_code=500, message="internal server error") from exc
+        # check_feedback(V3')가 카드 result = 저장된 판정임을 보장 — levels에 항상 있음
+        cards = tuple(
+            ResultCardOutput(level=levels[card.result], sentence=card.text) for card in response.cards
+        ) + (ResultCardOutput(level=levels[None], sentence=response.closing_line),)
 
         return ResultOutput(
             session_id=record.session_id,

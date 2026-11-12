@@ -2,9 +2,9 @@
 
 근거: Architecture 내부 API "`feedback` 응답 → PracticeResultView 매핑" 행 ③, DECISIONS #75·#101.
 - 키 K1 위험+found / K2 위험+missed / K3 위험+단서 없는 카드(closing_line) / K4 정상+trusted_correctly / K5 정상+over_warned.
-- 키→SignalLevel 값은 PRD OQ 63(색 매핑)·OQ 24(노랑 문구)가 미정이라 정하지 않는다 — 설정 상수 1곳
-  `CARD_LEVEL_BY_KEY`는 비어 있고, 답 전에는 테스트가 값을 주입한다. 표에 없는 조합·값 없는 키는
-  `CardLevelUndefined`(서비스가 500 INTERNAL로 — 임의 색을 보이지 않는다).
+- 키→SignalLevel 값은 설정 상수 1곳 `CARD_LEVEL_BY_KEY` — PRD OQ 63 ① 사용자 확정(DECISIONS #120, T-89).
+  표에 없는 조합·값 없는 키는 `CardLevelUndefined`(서비스가 feedback 호출 전에 500 INTERNAL로 — 임의 색을
+  보이지 않는다).
 """
 
 from collections.abc import Mapping, Sequence
@@ -12,8 +12,11 @@ from types import MappingProxyType
 
 SIGNAL_LEVELS: frozenset[str] = frozenset({"red", "yellow", "green"})
 
-# PRD OQ 63·24 답 전 — 값을 지어내지 않는다
-CARD_LEVEL_BY_KEY: Mapping[str, str] = MappingProxyType({})
+# PRD OQ 63 ① 사용자 확정 "판단 결과 기준 (추천)" — DECISIONS #120 (2026-11-12, T-89).
+# 노랑 화면 문구 "믿는 사람에게 물어봐요"(OQ 24, #121)는 프론트가 표시 — API 값은 yellow 그대로.
+CARD_LEVEL_BY_KEY: Mapping[str, str] = MappingProxyType(
+    {"K1": "green", "K2": "yellow", "K3": "green", "K4": "green", "K5": "yellow"}
+)
 
 
 class CardLevelUndefined(Exception):

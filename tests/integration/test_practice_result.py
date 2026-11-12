@@ -382,14 +382,18 @@ def test_unmapped_level_key_is_500_internal(env):
     session_id = env.ended(("correct",))
     env.use_levels({"K1": "green"})  # K3(closing_line) 값 없음 — 임의 색을 보이지 않는다
 
+    env.ai.calls.clear()
+
     response = env.result(session_id)
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL"
+    # T-89 ③ — 매핑 확인은 feedback 호출 전 (T-16 리뷰 권고 #1, DECISIONS #120)
+    assert env.ai.calls == []
 
 
-def test_app_default_mapping_is_empty_so_result_is_500(tmp_path):
-    # PRD OQ 63·24 답 전 — 기본 설정 상수는 비어 있어 결과 조회는 500 (값을 지어내지 않음)
+def test_app_default_mapping_returns_decided_levels(tmp_path):
+    # T-89 ② — 기본 앱(매핑 주입 없음)에서 A18 200, K2 노랑 → K1 초록 → K3 초록
     ai = RecordingPracticeAI()
     app = create_app(
         Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'd.db').as_posix()}", ai_client="fake"),
@@ -400,12 +404,12 @@ def test_app_default_mapping_is_empty_so_result_is_500(tmp_path):
     with TestClient(app) as client:
         local = ResultEnv(client, ai)
         local.login_child(grade="H1")
-        session_id = local.ended(("correct",))
+        session_id = local.ended(("other", "correct"))
         response = local.result(session_id)
     app.state.engine.dispose()
 
-    assert response.status_code == 500
-    assert response.json()["error"]["code"] == "INTERNAL"
+    assert response.status_code == 200
+    assert [card["level"] for card in response.json()["cards"]] == ["yellow", "green", "green"]
 
 
 # ==== A15 다시 도전 (F-13 ③, F-12) =====================================================
