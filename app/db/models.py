@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     JSON,
     SmallInteger,
     String,
@@ -168,3 +169,117 @@ class AuthSession(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+class PracticeSession(Base):
+    """연습 세션 (Architecture 엔티티 practice_sessions — 2026-11-11 AI 계약 채택 변경 포함, DECISIONS #98·#99)."""
+
+    __tablename__ = "practice_sessions"
+    __table_args__ = (
+        CheckConstraint("mode IN ('area', 'mission', 'retry')", name="ck_practice_sessions_mode"),
+        CheckConstraint(
+            "area IN ('scam', 'identity_lending', 'friend_pressure')",
+            name="ck_practice_sessions_area",
+        ),
+        CheckConstraint(
+            "subtype IS NULL OR subtype IN ('game_item', 'allowance', 'high_paying_job')",
+            name="ck_practice_sessions_subtype",
+        ),
+        CheckConstraint(
+            "status IN ('in_progress', 'ended', 'stopped')",
+            name="ck_practice_sessions_status",
+        ),
+        CheckConstraint(
+            "normal_outcome IS NULL OR normal_outcome IN ('trusted_correctly', 'over_warned')",
+            name="ck_practice_sessions_normal_outcome",
+        ),
+        CheckConstraint("origin IN ('live', 'demo_seed')", name="ck_practice_sessions_origin"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    child_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("children.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    area: Mapped[str] = mapped_column(String(32), nullable=False)
+    subtype: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    scenario_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_normal: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    target_cue_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    variant: Mapped[dict] = mapped_column(JSON, nullable=False)
+    scenario_title: Mapped[str] = mapped_column(String(80), nullable=False)
+    child_setup: Mapped[str] = mapped_column(String(300), nullable=False)
+    ai_role_name: Mapped[str] = mapped_column(String(40), nullable=False)
+    retry_of: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("practice_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    draw_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 1차 힌트 없음(#104 ④) — HINT_MAX는 PRD OQ 14 미정이라 값을 채우지 않는다(null)
+    hint_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    normal_outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PracticeTurn(Base):
+    """연습 턴 (Architecture 엔티티 practice_turns — 첫 대사 turn_index 0, DECISIONS #80·#98)."""
+
+    __tablename__ = "practice_turns"
+    __table_args__ = (
+        UniqueConstraint("session_id", "turn_index", name="uq_practice_turns_session_turn"),
+        CheckConstraint(
+            "ai_status IN ('ok', 'blocked', 'safe_reply')",
+            name="ck_practice_turns_ai_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("practice_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    ai_line: Mapped[str] = mapped_column(Text, nullable=False)
+    choices: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    chosen_choice_id: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    substituted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    target_clue_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    revealed_clue_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    ai_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class CueResult(Base):
+    """드러난 단서의 판정 결과 — found·missed만 저장, not_shown은 저장하지 않음 (DECISIONS #109)."""
+
+    __tablename__ = "cue_results"
+    __table_args__ = (
+        CheckConstraint("outcome IN ('found', 'missed')", name="ck_cue_results_outcome"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("practice_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    child_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("children.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    cue_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

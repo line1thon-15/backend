@@ -1,5 +1,7 @@
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from random import Random
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -11,6 +13,9 @@ from app.api.auth import router as auth_router
 from app.api.children import router as children_router
 from app.api.health import router as health_router
 from app.api.onboarding import router as onboarding_router
+from app.api.practice import router as practice_router
+from app.ai_client.factory import build_practice_ai
+from app.ai_client.ports import PracticeAI
 from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
 
@@ -21,10 +26,12 @@ from app.repositories.auth import SqlAlchemyAuthRepository
 from app.repositories.children import SqlAlchemyChildrenRepository
 from app.repositories.db_health import SqlAlchemyDatabaseProbe
 from app.repositories.onboarding import SqlAlchemyOnboardingRepository
+from app.repositories.practice import SqlAlchemyPracticeRepository
 from app.services.auth import AuthService
 from app.services.children import ChildrenService
 from app.services.health import HealthService
 from app.services.onboarding import OnboardingService
+from app.services.practice import PracticeService
 
 API_PREFIX = "/api/v1"
 logger = logging.getLogger(__name__)
@@ -114,6 +121,8 @@ async def _handle_unexpected_error(
 def create_app(
     settings: Settings | None = None,
     content_dir: Path = DEFAULT_CONTENT_DIR,
+    practice_ai: PracticeAI | None = None,
+    rng_factory: Callable[[], Random] = Random,
 ) -> FastAPI:
     settings = settings or Settings()
     # 콘텐츠 검증 실패면 ContentValidationError로 시작하지 않는다 (T-87, DECISIONS #111·#118)
@@ -137,6 +146,21 @@ def create_app(
         SqlAlchemyOnboardingRepository(session_factory),
         content.diagnosis,
     )
+    # AI는 포트로만 — 미지정이면 AI_CLIENT 설정대로 (테스트는 기록용 Fake를 주입)
+    if practice_ai is None:
+        practice_ai = build_practice_ai(
+            settings,
+            {
+                scenario_id: [clue.id for clue in entry.scenario.clues]
+                for scenario_id, entry in content.scenarios.items()
+            },
+        )
+    app.state.practice_service = PracticeService(
+        SqlAlchemyPracticeRepository(session_factory),
+        practice_ai,
+        content,
+        rng_factory=rng_factory,
+    )
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
@@ -155,6 +179,7 @@ def create_app(
     app.include_router(auth_router, prefix=API_PREFIX)
     app.include_router(children_router, prefix=API_PREFIX)
     app.include_router(onboarding_router, prefix=API_PREFIX)
+    app.include_router(practice_router, prefix=API_PREFIX)
     return app
 
 

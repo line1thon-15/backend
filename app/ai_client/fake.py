@@ -5,6 +5,7 @@ kind 3종 각 1개, id 중복 없음)를 지킨다. 테스트 주입: turn 상�
 judge의 not_shown은 보낸 `revealed_clue_ids`에서 뺀 단서로 만든다.
 """
 
+from collections.abc import Mapping, Sequence
 from typing import get_args
 
 from app.ai_client.ports import (
@@ -40,13 +41,23 @@ _CHOICES = (
 
 
 class FakePracticeAI:
-    def __init__(self, clue_ids: tuple[str, ...] = DEFAULT_CLUE_IDS, turn_status: str = "ok") -> None:
+    def __init__(
+        self,
+        clue_ids: tuple[str, ...] = DEFAULT_CLUE_IDS,
+        turn_status: str = "ok",
+        scenario_clue_ids: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
         if not clue_ids:
             raise ValueError("clue_ids must not be empty")
         if turn_status not in _TURN_STATUSES:
             raise ValueError(f"unknown turn_status: {turn_status}")
+        # scenario_id → 콘텐츠 시나리오 단서 ID(순서 그대로). 없으면 clue_ids를 쓴다 (T-15 — VA2 검증 통과용)
+        mapping = {key: tuple(value) for key, value in (scenario_clue_ids or {}).items()}
+        if any(not value for value in mapping.values()):
+            raise ValueError("scenario_clue_ids values must not be empty")
         self.clue_ids = tuple(clue_ids)
         self.turn_status = turn_status
+        self.scenario_clue_ids = mapping
 
     def _scenario_clue_ids(self, variant: Variant | None) -> list[str]:
         return [clue.id for clue in variant.clues] if variant else list(self.clue_ids)
@@ -68,7 +79,9 @@ class FakePracticeAI:
                     reveal_when="[fake] 대화가 이어지면",
                     reveal_line=f"[fake] 단서 {clue_id}",
                 )
-                for index, clue_id in enumerate(self.clue_ids)
+                for index, clue_id in enumerate(
+                    self.scenario_clue_ids.get(request.scenario_id, self.clue_ids)
+                )
             ],
         )
         return VariantResponse(variant=variant, source="model")
