@@ -102,8 +102,18 @@ def get_guardian_report(
             for area in report.areas
         ],
         weak_cues=[WeakCueView(cue_id=cue.cue_id, label=cue.label) for cue in report.weak_cues],
-        # 원천 없음(guardian_notices 테이블·T-46 지표) — 빈 목록 (T-25 보고 Open Question)
-        notices=[],
+        notices=[
+            NoticeView(
+                notice_id=notice.notice_id,
+                kind=notice.kind,
+                occurred_at=notice.occurred_at,
+                level=notice.level,
+                area=notice.area,
+                channel=notice.channel,
+            )
+            for notice in report.notices
+        ],
+        # 성장 지표 — T-46 병합(T-90) 때 연결, 그 전에는 빈 목록
         metrics=[],
         summary=GuardianSummaryView(
             status=report.summary.status,

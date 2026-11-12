@@ -3,7 +3,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.guardian_report import CueOutcome, EndedSession
+from app.domain.guardian_report import EndedSession
+from app.domain.weak_cues import CueOutcome
 
 
 class DatabaseProbe(Protocol):
@@ -274,6 +275,18 @@ class ReportChild:
     nickname: str
 
 
+@dataclass(frozen=True)
+class GuardianNoticeRecord:
+    """guardian_notices 한 행 — NoticeView 6개 값만(origin은 싣지 않는다)."""
+
+    notice_id: UUID
+    kind: str
+    occurred_at: datetime  # UTC aware
+    level: str | None
+    area: str | None
+    channel: str | None
+
+
 class GuardianReportRepository(Protocol):
     def get_owned_child(self, guardian_id: UUID, child_id: UUID) -> ReportChild | None:
         """보호자와 아이 두 조건을 한 쿼리로 — 없거나 남의 아이면 None (Architecture 인가 — 보호자)."""
@@ -282,5 +295,9 @@ class GuardianReportRepository(Protocol):
     def ended_sessions(self, child_id: UUID) -> list[EndedSession]: ...
 
     def ended_cue_outcomes(self, child_id: UUID) -> list[CueOutcome]:
-        """`status = ended` 세션의 단서 판정 목록 — 판정 시각은 그 세션의 종료 시각."""
+        """`status = ended` 세션의 단서 판정 목록 — 판정 시각은 그 세션의 종료 시각, session_id 포함(#122 동률)."""
+        ...
+
+    def notices(self, child_id: UUID) -> list[GuardianNoticeRecord]:
+        """그 아이의 알림 — 최신 순(occurred_at 내림차순, 같으면 id 내림차순)."""
         ...

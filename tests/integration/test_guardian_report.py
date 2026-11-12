@@ -6,8 +6,9 @@
 테스트 전략 "IDOR·보호자 응답 금지 키 0건", Tasks T-25 행(금지 키 목록·`status = ended`만·영역 값).
 
 연습 기록은 DB에 직접 넣는다(AI 호출 없음). DB는 테스트마다 pytest tmp_path SQLite 파일.
-`notices`·`metrics`·`summary`는 이 브랜치에 원천(guardian_notices 테이블·T-46·T-76)이 없어 빈 값·자리표시 값이다
-(T-25 보고 Open Question — 확정 동작이 아님).
+`notices`는 guardian_notices 테이블에서 채운다(2026-11-12 사용자 답 "T-25에 포함 (추천)"). `metrics`는 T-46 병합 전이라
+빈 목록, `summary`는 DECISIONS #123 고정 임시값. 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
+(2026-11-12 사용자 답 "금지 범위 좁히기 (추천)").
 """
 
 import json
@@ -24,7 +25,7 @@ from app.api.report import GuardianReportResponse
 from app.content.loader import load_content
 from app.core.config import Settings
 from app.db.base import Base
-from app.db.models import CueResult, PracticeSession, PracticeTurn
+from app.db.models import CueResult, GuardianNotice, PracticeSession, PracticeTurn
 from app.main import create_app
 
 CONTENT = load_content()
@@ -50,6 +51,11 @@ FORBIDDEN_KEYS = frozenset(
 )
 
 
+NOTICE_KEYS = {"notice_id", "kind", "occurred_at", "level", "area", "channel"}
+# 사용자 답 "금지 범위 좁히기 (추천)" — 설명 원문 "금지 키 'kind'는 알림 목록(notices) 밖에서만 검사해요."
+NOTICE_ALLOWED_FORBIDDEN = frozenset({"kind"})
+
+
 def all_keys(value) -> list[str]:
     if isinstance(value, dict):
         keys = list(value)
@@ -59,6 +65,16 @@ def all_keys(value) -> list[str]:
     if isinstance(value, list):
         return [key for item in value for key in all_keys(item)]
     return []
+
+
+def forbidden_keys_found(body: dict) -> set[str]:
+    """응답 전체의 금지 키. 단 최상위 `notices[]` 항목의 바로 아래 `kind`만 허용."""
+    found = set(all_keys({k: v for k, v in body.items() if k != "notices"})) & FORBIDDEN_KEYS
+    for notice in body.get("notices", []):
+        found |= (set(notice) - NOTICE_ALLOWED_FORBIDDEN) & FORBIDDEN_KEYS
+        for value in notice.values():
+            found |= set(all_keys(value)) & FORBIDDEN_KEYS
+    return found
 
 
 class Env:
@@ -106,6 +122,31 @@ class Env:
         response = self.client.get(f"/api/v1/children/{child_id}/report")
         self.client.cookies.clear()
         return response
+
+    def seed_notice(
+        self,
+        child_id: str,
+        *,
+        kind: str = "safety",
+        occurred_at: datetime = T0,
+        level: str | None = "red",
+        area: str | None = "scam",
+        channel: str | None = None,
+        origin: str = "demo_seed",
+    ) -> UUID:
+        with self.session_factory.begin() as db:
+            row = GuardianNotice(
+                child_id=UUID(child_id),
+                kind=kind,
+                level=level,
+                area=area,
+                channel=channel,
+                origin=origin,
+                occurred_at=occurred_at,
+            )
+            db.add(row)
+            db.flush()
+            return row.id
 
     def seed_session(
         self,
@@ -240,7 +281,7 @@ def test_report_placeholders_for_sources_not_on_this_branch(env, family):
 
     body = env.report(child["child_id"], guardian).json()
 
-    assert body["notices"] == []
+    assert body["notices"] == []  # 알림 행 없음
     assert body["metrics"] == []
     # 2026-11-12 사용자 답 "아직 기록이 적어요 (추천)" — T-76 전 임시값
     assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
@@ -305,7 +346,7 @@ def test_report_has_no_forbidden_keys_and_no_conversation_text(env, family):
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert FORBIDDEN_KEYS.isdisjoint(all_keys(body)), set(all_keys(body)) & FORBIDDEN_KEYS
+    assert forbidden_keys_found(body) == set()
     assert MARKER not in response.text
 
 
@@ -401,3 +442,85 @@ def test_report_malformed_child_id_is_422(env, family):
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert "not-a-uuid" not in json.dumps(response.json())
+
+
+# ==== 안전·연락 알림 (F-30 ①, F-41 ④⑤, 테스트 전략 ⑥) =====================================
+
+
+def test_report_lists_notices_newest_first_with_exact_keys(env, family):
+    guardian, child = family
+    old = env.seed_notice(child["child_id"], occurred_at=T0, level="yellow", area="identity_lending", origin="live")
+    new = env.seed_notice(
+        child["child_id"], kind="trusted_contact", occurred_at=T0 + timedelta(hours=3), level=None, area=None, channel="sms"
+    )
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    notices = response.json()["notices"]
+    assert notices == [
+        {
+            "notice_id": str(new),
+            "kind": "trusted_contact",
+            "occurred_at": "2026-11-10T18:00:00Z",
+            "level": None,
+            "area": None,
+            "channel": "sms",
+        },
+        {
+            "notice_id": str(old),
+            "kind": "safety",
+            "occurred_at": "2026-11-10T15:00:00Z",
+            "level": "yellow",
+            "area": "identity_lending",
+            "channel": None,
+        },
+    ]
+    assert all(set(notice) == NOTICE_KEYS for notice in notices)
+
+
+def test_report_notices_same_time_ordered_by_notice_id_desc(env, family):
+    guardian, child = family
+    ids = [env.seed_notice(child["child_id"], occurred_at=T0) for _ in range(3)]
+
+    notices = env.report(child["child_id"], guardian).json()["notices"]
+
+    assert [n["notice_id"] for n in notices] == [str(i) for i in sorted(ids, key=lambda u: u.int, reverse=True)]
+
+
+def test_report_does_not_show_other_childrens_notices(env, family):
+    guardian, child = family
+    sibling = env.new_child(guardian, nickname="바다")
+    env.seed_notice(sibling["child_id"])
+    stranger_child = env.new_child(env.new_guardian(), nickname="별이")
+    env.seed_notice(stranger_child["child_id"])
+
+    assert env.report(child["child_id"], guardian).json()["notices"] == []
+
+
+def test_report_with_notices_has_kind_only_inside_notices(env, family):
+    # 경우 1: 알림 항목 안의 kind는 허용 — 응답 전체 검사는 0건
+    guardian, child = family
+    env.seed_notice(child["child_id"])
+    env.seed_session(child["child_id"], outcomes={"urgency": "missed"})
+
+    body = env.report(child["child_id"], guardian).json()
+
+    assert body["notices"][0]["kind"] == "safety"
+    assert forbidden_keys_found(body) == set()
+    assert MARKER not in json.dumps(body, ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"weak_cues": [{"cue_id": "x", "label": "y", "kind": "correct"}], "notices": []},
+        {"kind": "correct", "notices": []},
+        {"summary": {"items": [{"kind": "other"}]}, "notices": []},
+        {"notices": [{"notice_id": "n", "kind": "safety", "meta": {"kind": "correct"}}]},
+        {"notices": [{"notice_id": "n", "kind": "safety", "choices": []}]},
+    ],
+)
+def test_forbidden_key_check_flags_kind_outside_notices(body):
+    # 경우 2: notices 항목 바로 아래가 아닌 kind(와 notices 안의 다른 금지 키)는 잡아낸다
+    assert forbidden_keys_found(body) != set()
