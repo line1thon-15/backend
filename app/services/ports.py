@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.domain.guardian_report import EndedSession
+
 
 class DatabaseProbe(Protocol):
     def ping(self) -> bool: ...
@@ -260,3 +262,25 @@ class PracticeRepository(Protocol):
         stop_turn: NewPracticeTurn,
         stopped_at: datetime,
     ) -> None: ...
+
+
+# ---- 보호자 리포트 (T-25) ---------------------------------------------------------
+# 보호자 경로 — practice_turns를 읽는 메서드를 두지 않는다 (Architecture 엔티티 practice_turns, F-30 ③).
+
+
+@dataclass(frozen=True)
+class ReportChild:
+    child_id: UUID
+    nickname: str
+
+
+class GuardianReportRepository(Protocol):
+    def get_owned_child(self, guardian_id: UUID, child_id: UUID) -> ReportChild | None:
+        """보호자와 아이 두 조건을 한 쿼리로 — 없거나 남의 아이면 None (Architecture 인가 — 보호자)."""
+        ...
+
+    def ended_sessions(self, child_id: UUID) -> list[EndedSession]: ...
+
+    def ended_cue_outcomes(self, child_id: UUID) -> list[tuple[str, str]]:
+        """`status = ended` 세션의 (cue_id, outcome) 목록."""
+        ...
