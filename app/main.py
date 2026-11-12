@@ -14,8 +14,10 @@ from app.api.children import router as children_router
 from app.api.health import router as health_router
 from app.api.onboarding import router as onboarding_router
 from app.api.practice import router as practice_router
+from app.api.report import router as report_router
 from app.ai_client.factory import build_practice_ai
 from app.ai_client.ports import PracticeAI
+from app.content.loader import AREA_IDS
 from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
 
@@ -26,10 +28,12 @@ from app.domain.practice_result import CARD_LEVEL_BY_KEY
 from app.repositories.auth import SqlAlchemyAuthRepository
 from app.repositories.children import SqlAlchemyChildrenRepository
 from app.repositories.db_health import SqlAlchemyDatabaseProbe
+from app.repositories.guardian_report import SqlAlchemyGuardianReportRepository
 from app.repositories.onboarding import SqlAlchemyOnboardingRepository
 from app.repositories.practice import SqlAlchemyPracticeRepository
 from app.services.auth import AuthService
 from app.services.children import ChildrenService
+from app.services.guardian_report import GuardianReportService
 from app.services.health import HealthService
 from app.services.onboarding import OnboardingService
 from app.services.practice import PracticeService
@@ -144,6 +148,12 @@ def create_app(
     app.state.children_service = ChildrenService(
         SqlAlchemyChildrenRepository(session_factory)
     )
+    # 보호자 리포트 A11 (T-25) — 단서 이름은 콘텐츠 사본(T-87)
+    app.state.guardian_report_service = GuardianReportService(
+        SqlAlchemyGuardianReportRepository(session_factory),
+        AREA_IDS,
+        {clue_id: clue.name for clue_id, clue in content.clues.items()},
+    )
     app.state.onboarding_service = OnboardingService(
         SqlAlchemyOnboardingRepository(session_factory),
         content.diagnosis,
@@ -184,6 +194,7 @@ def create_app(
     app.include_router(children_router, prefix=API_PREFIX)
     app.include_router(onboarding_router, prefix=API_PREFIX)
     app.include_router(practice_router, prefix=API_PREFIX)
+    app.include_router(report_router, prefix=API_PREFIX)
     return app
 
 

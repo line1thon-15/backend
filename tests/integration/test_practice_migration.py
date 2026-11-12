@@ -50,12 +50,14 @@ def test_upgrade_creates_practice_tables_matching_models(alembic_env):
     assert ("session_id", "turn_index") in turn_uniques
 
 
-def test_head_is_t15_revision(alembic_env):
+def test_t15_revision_is_in_history(alembic_env):
+    # head는 이후 리비전(T-25 guardian_notices 20261112_05)으로 바뀐다 — T-15 리비전이 이력에 있는지만 본다
     from alembic.script import ScriptDirectory
 
     config, _ = alembic_env
 
-    assert ScriptDirectory.from_config(config).get_current_head() == REVISION
+    script = ScriptDirectory.from_config(config)
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
 
 
 def test_downgrade_removes_only_practice_tables(alembic_env):
