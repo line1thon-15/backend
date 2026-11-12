@@ -247,7 +247,7 @@ implementer는 여기 정의된 규격만 사용한다. 값이 [OQ n]인 부분�
 | A12 | `PUT /me/onboarding` | 아이 | `{display:{font_scale, high_contrast, tts_enabled}, trusted_contact:{name, phone}, diagnosis_answers:[{question_id, option_id}] (3개), favorite_apps:[AppType]}` | `{start_difficulty}` (onboarding_completed_at 설정) | 422 `VALIDATION_ERROR` | F-05·F-06·F-07·F-08 (믿는 사람 형식은 [OQ 8]) |
 | A13 | `GET /me/home` | 아이 | — | `{areas:[{area}], badges:[BadgeView], streak_days:int, trusted_contact:{name, phone}\|null}` | 401 | F-09 ①, F-23 ①, F-28. **담당(2026-11-12 사용자 확정 — DECISIONS #124)**: `badges`·`streak_days` 연결은 T-90(백엔드 B, 계산 함수는 T-45 — 인용) |
 | A14 | `POST /me/trusted-contact-events` | 아이 | `{channel:"call"\|"sms"}` | 200 `{ok: true}` (guardian_notices에 `trusted_contact` 기록) — 2026-11-06 204에서 변경 | — | F-23 ③ |
-| A15 | `POST /practice/sessions` | 아이 | `{mode:"area", area}` \| `{mode:"mission"}` \| `{mode:"retry", retry_of: session_id}` | 201 `PracticeSessionView` | 409 `NO_SCENARIO_AVAILABLE`, 503 `AI_UNAVAILABLE`, 404 `SESSION_NOT_FOUND`(retry_of가 남의 것) | F-09 ①, F-10, F-11, F-12, F-13 ③, F-14, F-17, F-18, F-42 |
+| A15 | `POST /practice/sessions` | 아이 | `{mode:"area", area}` \| `{mode:"mission"}` \| `{mode:"retry", retry_of: session_id}` | 201 `PracticeSessionView` | 409 `NO_SCENARIO_AVAILABLE`, 503 `AI_UNAVAILABLE`. `mode:"retry"`는 다음 순서로 검사(2026-11-12 코드 반영, DECISIONS #131): ① `retry_of`가 없거나 남의 것 → 404 `SESSION_NOT_FOUND` ② 원 세션 진행 중 → 409 `SESSION_NOT_ENDED` ③ 원 세션 `stopped` → 409 `SESSION_STOPPED`(#113, T-16) ④ 콘텐츠에 원 시나리오가 없거나 platform·tone이 다른 변형이 남지 않음 → 409 `NO_SCENARIO_AVAILABLE` | F-09 ①, F-10, F-11, F-12, F-13 ③, F-14, F-17, F-18, F-42 |
 | A16 | `GET /practice/sessions/{id}` | 아이(본인 세션만) | — | `PracticeSessionView` (현재 턴 — 새로고침 복구. 종료된 세션이면 `status: "ended"`, `turn: null` — 2026-11-08, DECISIONS #82) | 404 `SESSION_NOT_FOUND` | Y4 |
 | A17 | `POST /practice/sessions/{id}/turns` | 아이(본인) | `{choice_id: str, turn_index: int≥0}` — **둘 다 필수(2026-11-12 사용자 확정 — DECISIONS #130)**. `turn_index` = 아이가 답하는 턴 번호로, 프론트는 A15·A16·A17 응답의 `turn.turn_index`(`TurnView`에 이미 있음 — 응답 규격 변경 없음)를 그대로 담는다. 누락·음수·정수 아님 → 422 `VALIDATION_ERROR` | `PracticeSessionView` (2026-11-08 `TurnView`에서 변경 — DECISIONS #82): 계속이면 `status: "in_progress"` + `turn` = 다음 턴, 종료면 `status: "ended"` + `turn: null`(마무리 대사 없음 — PRD OQ 62 ①). 종료 여부는 백엔드 domain이 정한다(DECISIONS #80). ~~처리 순서: 본인 세션(404) → 종료 세션(409) → 현재 턴의 선택지(422) → 종료 판정 → `next_turn` 또는 `judge`.~~ **처리 순서(2026-11-12 — DECISIONS #130)**: 요청 형식(422 `VALIDATION_ERROR`) → 본인 세션(404 `SESSION_NOT_FOUND`) → 세션 `ended`(409 `SESSION_ENDED`)·`stopped`(409 `SESSION_STOPPED`) → 요청 `turn_index` ≠ 현재 턴 번호(409 `TURN_ALREADY_ANSWERED` — 늦게 도착한 중복 답, 선택지 ID가 매 턴 `c1`·`c2`·`c3`로 같아 `choice_id`만으로는 구별 불가) → 현재 턴의 선택지에 없는 `choice_id`(422 `INVALID_CHOICE`) → 종료 판정 → `next_turn` 또는 `judge`. 저장은 한 트랜잭션 — AI 실패면 선택 기록도 저장하지 않음(같은 `choice_id`로 다시 시도 가능). **동시 답 충돌(2026-11-12 사용자 확정 — DECISIONS #128, 재작업 T-91)**: 같은 세션의 다른 요청이 먼저 커밋해 이번 요청의 저장이 충돌하면(같은 턴 행 중복 등) 이번 트랜잭션을 되돌리고 세션을 **다시 읽어** 그 상태로 코드를 정한다 — `in_progress` → 409 `TURN_ALREADY_ANSWERED` / `ended` → 409 `SESSION_ENDED` / `stopped` → 409 `SESSION_STOPPED`. 충돌을 무조건 `SESSION_ENDED`로 보내지 않는다(진행 중인데 종료로 오인 — 백엔드 A 리뷰 PR #13 #1) | 404 `SESSION_NOT_FOUND`, 409 `SESSION_ENDED`, 409 `SESSION_STOPPED`, 409 `TURN_ALREADY_ANSWERED`(`turn_index` ≠ 현재 턴, 또는 동시 답 충돌 + 세션 진행 중), 422 `VALIDATION_ERROR`(`choice_id`·`turn_index` 누락·형식), 422 `INVALID_CHOICE`, 503 `AI_UNAVAILABLE`(`next_turn` 또는 종료 시 `judge` 실패) | F-11 ①②④⑤⑥ |
 | A18 | `GET /practice/sessions/{id}/result` | 아이(본인) | — | `PracticeResultView` | 409 `SESSION_NOT_ENDED`, 404, 503 `AI_UNAVAILABLE`(내부 `feedback` 실패·응답 검증 실패 — 부분 응답 없음, 2026-11-08 명시, DECISIONS #75) | F-13 ①②, F-26 |
@@ -290,14 +290,14 @@ implementer는 여기 정의된 규격만 사용한다. 값이 [OQ n]인 부분�
 | NOT_FOUND | 404 | Route not found |
 | INVALID_CREDENTIALS | 401 | 보호자 로그인 실패 |
 | INVALID_CODE_OR_PIN | 401 | 아이 로그인 실패 |
-| UNAUTHENTICATED | 401 | 세션 없음·만료·폐기 |
-| FORBIDDEN_ROLE | 403 | 보호자 세션으로 아이 API 호출 또는 그 반대 |
+| UNAUTHENTICATED | 401 | 세션 없음·만료·폐기(유효하지 않은 세션) — 역할 검사보다 먼저 판정, 이 경우 `FORBIDDEN_ROLE`을 보내지 않음 |
+| FORBIDDEN_ROLE | 403 | **유효한** 보호자 세션으로 아이 전용 API 호출 또는 그 반대(DECISIONS #131) |
 | CHILD_NOT_FOUND | 404 | 없는 아이 **또는 다른 보호자의 아이** (존재 여부를 드러내지 않음 — F-02 ④·F-30 ④) |
 | SESSION_NOT_FOUND | 404 | 없는 연습 세션 또는 다른 아이의 세션 |
 | NO_SCENARIO_AVAILABLE | 409 | 출제 가능한 상황 없음(자동 검수 대체 후보 소진 포함 — Y4 빈 값) |
-| SESSION_ENDED / SESSION_NOT_ENDED | 409 | 종료된 세션에 턴 요청 / 진행 중 세션의 결과 요청 |
+| SESSION_ENDED / SESSION_NOT_ENDED | 409 | 종료된 세션에 턴 요청 / 진행 중 세션의 결과 요청(A18) 또는 진행 중 세션을 `retry_of`로 다시 도전 요청(A15 — DECISIONS #131) |
 | TURN_ALREADY_ANSWERED (2026-11-12 — 사용자 확정, DECISIONS #128) | 409 | A17 요청의 `turn_index`가 현재 턴이 아님(먼저 보낸 답이 이미 처리된 늦은 중복 — DECISIONS #130), 또는 같은 턴에 답이 동시에 들어와 먼저 처리된 답이 이미 저장됐고 세션은 아직 진행 중 — Y4는 A16으로 현재 턴을 다시 불러온다. 세션이 끝났으면 `SESSION_ENDED`, 멈췄으면 `SESSION_STOPPED`를 대신 보낸다 |
-| SESSION_STOPPED (2026-11-11 — DECISIONS #99, 사용자 확정 #113) | 409 | safe_reply로 멈춘 세션에 턴·결과 요청(A17·A18) — Y4는 안내 상태 유지, Y5로 가지 않음 |
+| SESSION_STOPPED (2026-11-11 — DECISIONS #99, 사용자 확정 #113) | 409 | safe_reply로 멈춘 세션에 턴·결과 요청(A17·A18) — Y4는 안내 상태 유지, Y5로 가지 않음. 멈춘 세션을 `retry_of`로 다시 도전 요청(A15 — #113, T-16, DECISIONS #131)도 같은 코드 |
 | INVALID_CHOICE | 422 | 현재 턴에 없는 선택지 |
 | AI_UNAVAILABLE | 503 | AI 서비스 실패(비2xx·연결 실패·시간 초과·응답 스키마 위반) — Y4 에러 + 다시 시도. Y5에서도 발생(2026-11-08): 결과 조회 A18의 내부 `feedback` 실패·응답 검증 실패 → Y5 에러 + 다시 시도, 부분 응답 없음(DECISIONS #75) |
 | DB_UNAVAILABLE | 503 | 헬스체크 DB 실패 |
@@ -552,7 +552,7 @@ frontend 저장소는 프론트 담당 소유다(ADR-0012). 아래 경로·가�
 |---|---|
 | 인가 — 보호자 | `{child_id}` 경로가 있는 모든 보호자 API는 services의 `get_owned_child(guardian_id, child_id)`(두 조건을 한 쿼리로)를 거친다. 없거나 남의 아이면 404 `CHILD_NOT_FOUND`. IDOR 통합 테스트 필수(F-02 ④, F-30 ④ — T-07·T-25) |
 | 인가 — 아이 | 아이 API는 세션의 `subject_id`만 쓴다. 연습 세션 ID 접근은 `session.child_id == 세션 주체` 확인, 아니면 404 |
-| 역할 분리 | 보호자 세션으로 아이 API, 아이 세션으로 보호자 API 호출 시 403 `FORBIDDEN_ROLE` |
+| 역할 분리 | **유효한** 보호자 세션으로 아이 API, 유효한 아이 세션으로 보호자 API 호출 시 403 `FORBIDDEN_ROLE`. 세션이 없거나 만료·폐기 등으로 유효하지 않으면 역할과 무관하게 401 `UNAUTHENTICATED`(인증 판정이 역할 판정보다 먼저 — 2026-11-12 명시, DECISIONS #131) |
 | 비밀번호·PIN | Argon2id 해시. 비밀번호 8~128자. PIN은 보호자 입력(2026-11-07 변경) — 평문은 등록·재설정 요청 본문에만 존재하고 어떤 응답·DB·로그에도 없음 |
 | 세션 토큰 | `secrets.token_urlsafe(32)`, DB에는 SHA-256 해시만. 만료: 보호자·아이 모두 7일(설정 상수). PIN 재설정·코드 재발급 시 그 아이의 세션 전부 폐기 |
 | CORS | 켜지 않는다. 프론트는 같은 출처 프록시로만 호출(ADR-0013) — 교차 출처 호출이 실패하는 것은 의도된 동작 |
