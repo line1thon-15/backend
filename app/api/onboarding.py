@@ -11,6 +11,7 @@ from pydantic import (
 )
 
 from app.api.dependencies import require_child_id
+from app.core.errors import AppError
 from app.services.onboarding import OnboardingService
 
 router = APIRouter()
@@ -93,6 +94,18 @@ def save_onboarding(
     request: Request,
     child_id: UUID = Depends(require_child_id),
 ) -> OnboardingResponse:
+    allowed_app_type_ids = {
+        app_type.id
+        for app_type in request.app.state.content.platform_app_types.app_types
+    }
+    if not set(payload.favorite_apps).issubset(allowed_app_type_ids):
+        raise AppError(
+            code="VALIDATION_ERROR",
+            status_code=422,
+            message="request validation failed",
+            details={"fields": ["favorite_apps"]},
+        )
+
     service: OnboardingService = request.app.state.onboarding_service
     start_difficulty = service.save_onboarding(
         child_id=child_id,

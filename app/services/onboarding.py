@@ -1,26 +1,19 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+from app.content.schemas import DiagnosisFile
 from app.core.errors import AppError
 from app.services.ports import OnboardingRepository
 
-# The screenshot's three choices describe increasing comfort with risky situations.
-# Higher risk scores start at an easier level and therefore receive more support.
-OPTION_RISK_SCORE = {
-    "agree": 2,
-    "yes": 2,
-    "그래요": 2,
-    "sometimes": 1,
-    "가끔": 1,
-    "no": 0,
-    "disagree": 0,
-    "아니에요": 0,
-}
-
 
 class OnboardingService:
-    def __init__(self, repository: OnboardingRepository) -> None:
+    def __init__(
+        self,
+        repository: OnboardingRepository,
+        diagnosis: DiagnosisFile,
+    ) -> None:
         self._repository = repository
+        self._diagnosis = diagnosis
 
     def save_onboarding(
         self,
@@ -42,7 +35,8 @@ class OnboardingService:
                 details={"fields": ["display.font_scale"]},
             )
 
-        if len(diagnosis_answers) != 3:
+        questions = {question.id: question for question in self._diagnosis.questions}
+        if len(diagnosis_answers) != len(questions):
             raise AppError(
                 code="VALIDATION_ERROR",
                 status_code=422,
@@ -51,7 +45,7 @@ class OnboardingService:
             )
 
         question_ids = [question_id for question_id, _ in diagnosis_answers]
-        if len(set(question_ids)) != 3:
+        if len(set(question_ids)) != len(question_ids):
             raise AppError(
                 code="VALIDATION_ERROR",
                 status_code=422,
@@ -59,28 +53,45 @@ class OnboardingService:
                 details={"fields": ["diagnosis_answers"]},
             )
 
-        risk_score = 0
-        for _, option_id in diagnosis_answers:
-            normalized_option = option_id.strip()
-            score = OPTION_RISK_SCORE.get(
-                normalized_option,
-                OPTION_RISK_SCORE.get(normalized_option.casefold()),
-            )
-            if score is None:
+        total_score = 0
+        for question_id, option_id in diagnosis_answers:
+            question = questions.get(question_id)
+            if question is None:
                 raise AppError(
                     code="VALIDATION_ERROR",
                     status_code=422,
                     message="request validation failed",
                     details={"fields": ["diagnosis_answers"]},
                 )
-            risk_score += score
 
-        if risk_score >= 5:
-            start_difficulty = 1
-        elif risk_score >= 2:
-            start_difficulty = 2
-        else:
-            start_difficulty = 3
+            option = next(
+                (item for item in question.options if item.id == option_id),
+                None,
+            )
+            if option is None:
+                raise AppError(
+                    code="VALIDATION_ERROR",
+                    status_code=422,
+                    message="request validation failed",
+                    details={"fields": ["diagnosis_answers"]},
+                )
+            total_score += option.score
+
+        start_difficulty = next(
+            (
+                item.difficulty
+                for item in self._diagnosis.difficulty_by_score
+                if item.min_score <= total_score <= item.max_score
+            ),
+            None,
+        )
+        if start_difficulty is None:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                status_code=422,
+                message="request validation failed",
+                details={"fields": ["diagnosis_answers"]},
+            )
 
         normalized_name = (
             trusted_contact_name.strip() if trusted_contact_name else None
