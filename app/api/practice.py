@@ -29,7 +29,8 @@ class StartAreaSessionRequest(BaseModel):
 class AnswerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    choice_id: str = Field(min_length=1, max_length=8)
+    # 길이 상한은 두지 않는다 — 현재 턴에 없는 id는 404·409 판정 뒤 서비스가 422 INVALID_CHOICE로 (리뷰 권고 #4)
+    choice_id: str = Field(min_length=1)
 
 
 class ChoiceView(BaseModel):

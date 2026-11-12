@@ -6,7 +6,8 @@ A17의 저장은 메서드 하나 = 한 트랜잭션이다(DECISIONS #82·#85). 
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Child, ChildSettings, CueResult, PracticeSession, PracticeTurn
@@ -17,6 +18,7 @@ from app.services.ports import (
     PracticeChildProfile,
     PracticeRepository,
     PracticeSessionRecord,
+    PracticeStateConflict,
     PracticeTurnRecord,
 )
 
@@ -156,14 +158,46 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
             )
 
     @staticmethod
-    def _record_choice(db: Session, session_id: UUID, turn_index: int, choice_id: str) -> None:
-        turn = db.scalars(
-            select(PracticeTurn).where(
+    def _claim_turn(
+        db: Session,
+        session_id: UUID,
+        turn_index: int,
+        choice_id: str,
+        session_values: dict,
+    ) -> None:
+        """조건부 갱신으로 같은 세션 동시 요청을 막는다 (T-15 리뷰 치명 #1).
+
+        세션이 아직 in_progress일 때만 세션 행을 갱신하고(쓰기 잠금 — 동시 쓰기 직렬화),
+        답할 턴의 chosen_choice_id가 비어 있을 때만 선택을 기록한다. 하나라도 0행이면 충돌.
+        """
+        claimed = db.execute(
+            update(PracticeSession)
+            .where(PracticeSession.id == session_id, PracticeSession.status == "in_progress")
+            .values(**session_values)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount != 1:
+            raise PracticeStateConflict(str(session_id))
+        chosen = db.execute(
+            update(PracticeTurn)
+            .where(
                 PracticeTurn.session_id == session_id,
                 PracticeTurn.turn_index == turn_index,
+                PracticeTurn.chosen_choice_id.is_(None),
             )
-        ).one()
-        turn.chosen_choice_id = choice_id
+            .values(chosen_choice_id=choice_id)
+            .execution_options(synchronize_session=False)
+        )
+        if chosen.rowcount != 1:
+            raise PracticeStateConflict(str(session_id))
+
+    def _write(self, work) -> None:
+        """한 트랜잭션. 유일 제약 위반(동시 요청이 먼저 저장함)도 충돌로 바꾼다."""
+        try:
+            with self._session_factory.begin() as db:
+                work(db)
+        except IntegrityError as exc:
+            raise PracticeStateConflict("concurrent practice write") from exc
 
     def record_answer_and_continue(
         self,
@@ -173,9 +207,13 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
         chosen_choice_id: str,
         next_turn: NewPracticeTurn,
     ) -> None:
-        with self._session_factory.begin() as db:
-            self._record_choice(db, session_id, answered_turn_index, chosen_choice_id)
+        def work(db: Session) -> None:
+            self._claim_turn(
+                db, session_id, answered_turn_index, chosen_choice_id, {"status": "in_progress"}
+            )
             db.add(_turn_row(session_id, next_turn))
+
+        self._write(work)
 
     def record_answer_and_end(
         self,
@@ -187,8 +225,14 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
         cue_results: list[NewCueResult],
         ended_at: datetime,
     ) -> None:
-        with self._session_factory.begin() as db:
-            self._record_choice(db, session_id, answered_turn_index, chosen_choice_id)
+        def work(db: Session) -> None:
+            self._claim_turn(
+                db,
+                session_id,
+                answered_turn_index,
+                chosen_choice_id,
+                {"status": "ended", "ended_at": ended_at},
+            )
             for item in cue_results:
                 db.add(
                     CueResult(
@@ -199,9 +243,8 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
                         recorded_at=ended_at,
                     )
                 )
-            row = db.get(PracticeSession, session_id)
-            row.status = "ended"
-            row.ended_at = ended_at
+
+        self._write(work)
 
     def record_answer_and_stop(
         self,
@@ -212,9 +255,14 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
         stop_turn: NewPracticeTurn,
         stopped_at: datetime,
     ) -> None:
-        with self._session_factory.begin() as db:
-            self._record_choice(db, session_id, answered_turn_index, chosen_choice_id)
+        def work(db: Session) -> None:
+            self._claim_turn(
+                db,
+                session_id,
+                answered_turn_index,
+                chosen_choice_id,
+                {"status": "stopped", "ended_at": stopped_at},
+            )
             db.add(_turn_row(session_id, stop_turn))
-            row = db.get(PracticeSession, session_id)
-            row.status = "stopped"
-            row.ended_at = stopped_at
+
+        self._write(work)

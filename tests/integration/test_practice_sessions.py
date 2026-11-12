@@ -721,7 +721,7 @@ def test_choice_not_in_current_turn_is_422(env, choice_id):
     assert env.turn_rows(body["session_id"])[0].chosen_choice_id is None
 
 
-@pytest.mark.parametrize("payload", [{}, {"choice_id": ""}, {"choice_id": "c1", "emotion": 2}, {"choice_id": "x" * 9}])
+@pytest.mark.parametrize("payload", [{}, {"choice_id": ""}, {"choice_id": "c1", "emotion": 2}])
 def test_malformed_turn_request_is_422_validation(env, payload):
     env.login_child(grade="H1")
     body = env.started()
@@ -1094,3 +1094,149 @@ def test_public_responses_have_no_internal_keys(env):
 
     for response in (started, continued, fetched, ended):
         assert _keys(response.json()) & FORBIDDEN_PUBLIC_KEYS == set()
+
+
+# ---- 긴 choice_id도 처리 순서 404 → 409 → 422 INVALID_CHOICE (리뷰 권고 #4) ---------------
+
+LONG_CHOICE_ID = "x" * 9
+
+
+def test_long_choice_id_is_invalid_choice(env):
+    env.login_child(grade="H1")
+    body = env.started()
+    env.ai.calls.clear()
+
+    response = env.answer(body["session_id"], LONG_CHOICE_ID)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_CHOICE"
+    assert env.ai.calls == []
+
+
+def test_long_choice_id_on_other_childs_session_is_404(env):
+    env.login_child(grade="H1")
+    body = env.started()
+    env.login_child(grade="H1")
+
+    response = env.answer(body["session_id"], LONG_CHOICE_ID)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+def test_long_choice_id_on_ended_session_is_409(env):
+    env.login_child(grade="H1")
+    body = env.started()
+    env.answer(body["session_id"], choice_id_of(body, "correct", env))
+
+    response = env.answer(body["session_id"], LONG_CHOICE_ID)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+
+
+# ---- 같은 세션 A17 동시 요청 (리뷰 치명 #1) ------------------------------------------------
+# 바깥 요청이 AI 응답을 기다리는 사이 같은 세션의 다른 요청이 먼저 저장을 끝낸 상황을 재현한다:
+# AI 응답 덮어쓰기 콜백 안에서 같은 서비스로 안쪽 요청을 한 번 끝까지 처리한다.
+
+
+def _race(env, name: str, child_id: UUID, session_id: str, inner_choice: str):
+    service = env.client.app.state.practice_service
+    state = {"done": False}
+
+    def override(_request, response):
+        if not state["done"]:
+            state["done"] = True
+            service.answer(child_id=child_id, session_id=UUID(session_id), choice_id=inner_choice)
+        return response
+
+    env.ai.overrides[name] = override
+
+
+def test_concurrent_ending_answers_save_cue_results_once(env):
+    # (a) 종료 답 두 개가 겹침 → 뒤에 저장하려는 쪽은 409, cue_results 중복 없음
+    child_id = env.login_child(grade="H1")
+    body = env.started()
+    correct = choice_id_of(body, "correct", env)
+    _race(env, "judge", child_id, body["session_id"], correct)
+
+    response = env.answer(body["session_id"], correct)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+    assert len(env.cue_rows(body["session_id"])) == 1
+    assert env.session_row(body["session_id"]).status == "ended"
+
+
+def test_continue_answer_racing_an_ending_answer_is_409(env):
+    # (b) 종료 답이 먼저 저장된 뒤 계속 답이 저장하려 함 → 409, 턴 추가·선택 덮어쓰기 없음
+    child_id = env.login_child(grade="H1")
+    body = env.started()
+    correct = choice_id_of(body, "correct", env)
+    other = choice_id_of(body, "other", env)
+    _race(env, "turn", child_id, body["session_id"], correct)
+
+    response = env.answer(body["session_id"], other)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+    turns = env.turn_rows(body["session_id"])
+    assert len(turns) == 1
+    assert turns[0].chosen_choice_id == correct
+    assert env.session_row(body["session_id"]).status == "ended"
+
+
+def test_concurrent_continue_answers_are_409_not_500(env):
+    # (c) 계속 답 두 개가 겹침 → 뒤쪽은 409(500 아님), 턴은 하나만 추가
+    child_id = env.login_child(grade="H1")
+    body = env.started()
+    doubtful = choice_id_of(body, "doubtful", env)
+    other = choice_id_of(body, "other", env)
+    _race(env, "turn", child_id, body["session_id"], doubtful)
+
+    response = env.answer(body["session_id"], other)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+    turns = env.turn_rows(body["session_id"])
+    assert len(turns) == 2
+    assert turns[0].chosen_choice_id == doubtful
+    assert env.session_row(body["session_id"]).status == "in_progress"
+
+
+def test_stop_racing_a_continue_answer_is_409(env):
+    # safe_reply 멈춤 저장도 같은 조건부 갱신을 탄다
+    child_id = env.login_child(grade="H1")
+    body = env.started()
+    doubtful = choice_id_of(body, "doubtful", env)
+    _race(env, "turn", child_id, body["session_id"], doubtful)
+    env.ai.turn_status = "safe_reply"
+
+    response = env.answer(body["session_id"], choice_id_of(body, "other", env))
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+
+
+def test_cue_results_reject_duplicate_session_cue(env):
+    # DB 유일 제약 uq_cue_results_session_cue
+    from datetime import datetime, timezone
+
+    from sqlalchemy.exc import IntegrityError
+
+    child_id = env.login_child(grade="H1")
+    body = env.started()
+    env.answer(body["session_id"], choice_id_of(body, "correct", env))
+    existing = env.cue_rows(body["session_id"])[0]
+
+    with pytest.raises(IntegrityError):
+        with env.session_factory.begin() as db:
+            db.add(
+                CueResult(
+                    session_id=UUID(body["session_id"]),
+                    child_id=child_id,
+                    cue_id=existing.cue_id,
+                    outcome="missed",
+                    recorded_at=datetime.now(timezone.utc),
+                )
+            )

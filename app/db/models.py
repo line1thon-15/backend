@@ -170,6 +170,7 @@ class AuthSession(Base):
         nullable=True,
     )
 
+
 class PracticeSession(Base):
     """연습 세션 (Architecture 엔티티 practice_sessions — 2026-11-11 AI 계약 채택 변경 포함, DECISIONS #98·#99)."""
 
@@ -266,6 +267,8 @@ class CueResult(Base):
     __tablename__ = "cue_results"
     __table_args__ = (
         CheckConstraint("outcome IN ('found', 'missed')", name="ck_cue_results_outcome"),
+        # 같은 세션의 같은 단서는 한 번만 — 동시 종료 요청의 중복 저장 방지 (T-15 리뷰 치명 #1)
+        UniqueConstraint("session_id", "cue_id", name="uq_cue_results_session_cue"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)

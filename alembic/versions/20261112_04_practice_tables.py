@@ -102,6 +102,7 @@ def upgrade() -> None:
         sa.Column("outcome", sa.String(length=16), nullable=False),
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("outcome IN ('found', 'missed')", name="ck_cue_results_outcome"),
+        sa.UniqueConstraint("session_id", "cue_id", name="uq_cue_results_session_cue"),
         sa.ForeignKeyConstraint(["session_id"], ["practice_sessions.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["child_id"], ["children.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

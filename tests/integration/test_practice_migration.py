@@ -77,3 +77,18 @@ def test_upgrade_again_after_downgrade(alembic_env):
     command.upgrade(config, "head")
 
     assert PRACTICE_TABLES <= _tables(engine)
+
+
+def test_cue_results_has_session_cue_unique_constraint(alembic_env):
+    config, engine = alembic_env
+
+    command.upgrade(config, "head")
+
+    uniques = {tuple(u["column_names"]) for u in inspect(engine).get_unique_constraints("cue_results")}
+    assert ("session_id", "cue_id") in uniques
+    model_uniques = {
+        tuple(c.name for c in constraint.columns)
+        for constraint in Base.metadata.tables["cue_results"].constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert ("session_id", "cue_id") in model_uniques

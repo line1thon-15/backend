@@ -132,6 +132,10 @@ class OnboardingRepository(Protocol):
 # ---- 연습 (T-15) ----------------------------------------------------------------
 
 
+class PracticeStateConflict(Exception):
+    """저장 시점에 세션이 이미 진행 중이 아니거나 그 턴에 이미 답이 기록됨 — 같은 세션 동시 요청."""
+
+
 @dataclass(frozen=True)
 class PracticeChildProfile:
     grade: str

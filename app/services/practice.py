@@ -34,6 +34,7 @@ from app.services.ports import (
     NewPracticeTurn,
     PracticeRepository,
     PracticeSessionRecord,
+    PracticeStateConflict,
     PracticeTurnRecord,
 )
 
@@ -64,6 +65,10 @@ def _utcnow() -> datetime:
 
 def _ai_unavailable() -> AppError:
     return AppError(code="AI_UNAVAILABLE", status_code=503, message="AI service is unavailable")
+
+
+def _session_ended() -> AppError:
+    return AppError(code="SESSION_ENDED", status_code=409, message="practice session has ended")
 
 
 def _session_not_found() -> AppError:
@@ -200,7 +205,7 @@ class PracticeService:
         if record is None:
             raise _session_not_found()
         if record.status == "ended":
-            raise AppError(code="SESSION_ENDED", status_code=409, message="practice session has ended")
+            raise _session_ended()
         if record.status == "stopped":
             raise AppError(code="SESSION_STOPPED", status_code=409, message="practice session was stopped")
 
@@ -241,19 +246,23 @@ class PracticeService:
                 )
             except AIUnavailableError as exc:
                 raise _ai_unavailable() from exc
-            self._repository.record_answer_and_end(
-                session_id=record.session_id,
-                child_id=child_id,
-                answered_turn_index=current.turn_index,
-                chosen_choice_id=choice_id,
-                # not_shown은 저장하지 않는다 (#109)
-                cue_results=[
-                    NewCueResult(cue_id=item.clue_id, outcome=item.result)
-                    for item in judged.results
-                    if item.result != "not_shown"
-                ],
-                ended_at=self._clock(),
-            )
+            try:
+                self._repository.record_answer_and_end(
+                    session_id=record.session_id,
+                    child_id=child_id,
+                    answered_turn_index=current.turn_index,
+                    chosen_choice_id=choice_id,
+                    # not_shown은 저장하지 않는다 (#109)
+                    cue_results=[
+                        NewCueResult(cue_id=item.clue_id, outcome=item.result)
+                        for item in judged.results
+                        if item.result != "not_shown"
+                    ],
+                    ended_at=self._clock(),
+                )
+            except PracticeStateConflict as exc:
+                # 같은 세션의 다른 요청이 먼저 저장함 — 이 요청은 끝난 세션에 대한 답 (리뷰 치명 #1)
+                raise _session_ended() from exc
             return self._output(record, status="ended", turn=None)
 
         try:
@@ -281,13 +290,17 @@ class PracticeService:
                 revealed_clue_ids=tuple(sent_revealed),
                 ai_status="safe_reply",
             )
-            self._repository.record_answer_and_stop(
-                session_id=record.session_id,
-                answered_turn_index=current.turn_index,
-                chosen_choice_id=choice_id,
-                stop_turn=stop_turn,
-                stopped_at=self._clock(),
-            )
+            try:
+                self._repository.record_answer_and_stop(
+                    session_id=record.session_id,
+                    answered_turn_index=current.turn_index,
+                    chosen_choice_id=choice_id,
+                    stop_turn=stop_turn,
+                    stopped_at=self._clock(),
+                )
+            except PracticeStateConflict as exc:
+                # 같은 세션의 다른 요청이 먼저 저장함 — 이 요청은 끝난 세션에 대한 답 (리뷰 치명 #1)
+                raise _session_ended() from exc
             return self._output(record, status="stopped", turn=stop_turn)
 
         next_turn = NewPracticeTurn(
@@ -299,12 +312,16 @@ class PracticeService:
             revealed_clue_ids=tuple(response.revealed_clue_ids),
             ai_status=response.status,
         )
-        self._repository.record_answer_and_continue(
-            session_id=record.session_id,
-            answered_turn_index=current.turn_index,
-            chosen_choice_id=choice_id,
-            next_turn=next_turn,
-        )
+        try:
+            self._repository.record_answer_and_continue(
+                session_id=record.session_id,
+                answered_turn_index=current.turn_index,
+                chosen_choice_id=choice_id,
+                next_turn=next_turn,
+            )
+        except PracticeStateConflict as exc:
+            # 같은 세션의 다른 요청이 먼저 저장함 — 이 요청은 끝난 세션에 대한 답 (리뷰 치명 #1)
+            raise _session_ended() from exc
         return self._output(record, status="in_progress", turn=next_turn)
 
     # ---- 변환 ----------------------------------------------------------------
