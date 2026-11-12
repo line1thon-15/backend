@@ -128,9 +128,11 @@ def test_import_inside_function_is_detected(tmp_path):
 
 # ==== ⑤ 보호자 경로 practice_turns 예외 강제 R4 (T-46 — ADR-0016, DECISIONS #87·#93) ====
 # 리포트·성장 서비스 모듈이 부르는 리포지토리 메서드는 허용 목록뿐이다. 그중 practice_turns를 읽는 것은
-# first_answer_kinds 하나(나머지 둘은 practice_sessions·cue_results만 — 통합 테스트가 SQL로 확인).
+# first_answer_kinds 하나(나머지는 practice_sessions·cue_results만 — 통합 테스트가 SQL로 확인).
 GROWTH_SERVICE_PATTERNS = ("app/services/growth*.py", "app/services/report*.py")
-GROWTH_REPOSITORY_METHODS = frozenset({"ended_session_stats", "first_session_ids", "first_answer_kinds"})
+GROWTH_REPOSITORY_METHODS = frozenset(
+    {"ended_session_stats", "first_session_ids", "first_answer_kinds", "ended_cue_outcomes"}
+)
 
 
 def find_growth_repository_violations(root: Path) -> list[str]:

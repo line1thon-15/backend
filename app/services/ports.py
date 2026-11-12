@@ -228,6 +228,15 @@ class FirstAnswerKind:
     kind: str
 
 
+@dataclass(frozen=True)
+class EndedCueOutcome:
+    """종료 세션의 단서 판정 1건 (T-46 더 연습이 필요한 단서) — cue_results만."""
+
+    cue_id: str
+    outcome: str  # found | missed
+    ended_at: datetime  # UTC — 세션 종료 시각
+
+
 class PracticeRepository(Protocol):
     def get_child_profile(self, child_id: UUID) -> PracticeChildProfile | None: ...
 
@@ -304,3 +313,5 @@ class PracticeRepository(Protocol):
         ended_from: datetime,
         ended_to: datetime,
     ) -> list[FirstAnswerKind]: ...
+
+    def ended_cue_outcomes(self, child_id: UUID) -> list[EndedCueOutcome]: ...

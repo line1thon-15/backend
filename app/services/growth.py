@@ -4,7 +4,7 @@
 서비스다(Architecture 데이터 흐름 5번 "A19·A11이 같이 쓴다"). 결과는 domain `MetricResult` 그대로 —
 API DTO 변환은 각 라우터가 한다.
 
-리포지토리 호출은 허용 목록 3개뿐이다(ADR-0016 R4 — tests/unit/test_import_boundaries.py ⑤).
+리포지토리 호출은 허용 목록 4개뿐이다(ADR-0016 R4 — tests/unit/test_import_boundaries.py ⑤).
 practice_turns를 읽는 것은 `first_answer_kinds` 하나(첫 답 kind만 — 문장·선택지 내용 없음).
 """
 
@@ -14,6 +14,7 @@ from uuid import UUID
 
 from app.domain.metrics import MetricResult, MetricSession, compute_metrics, metric_periods
 from app.domain.service_time import SERVICE_TZ, service_date
+from app.domain.weak_cues import CueOutcome, select_weak_cues
 from app.services.ports import PracticeRepository
 
 
@@ -61,3 +62,15 @@ class GrowthMetricsService:
             for s in stats
         ]
         return compute_metrics(sessions, today)
+
+    def needs_practice_cue_ids(self, child_id: UUID) -> tuple[str, ...]:
+        """더 연습이 필요한 단서 ID(최대 3개, 순서 있음) — 보호자 약점 단서와 같은 규칙(T-25 재사용).
+
+        단서 카드(label·sentence)로 바꾸는 것은 응답을 조립하는 쪽(T-90·T-25)이 콘텐츠로 한다.
+        """
+        return select_weak_cues(
+            [
+                CueOutcome(cue_id=o.cue_id, outcome=o.outcome, judged_at=o.ended_at)
+                for o in self._repository.ended_cue_outcomes(child_id)
+            ]
+        )

@@ -327,3 +327,49 @@ def test_other_growth_queries_do_not_touch_practice_turns(db):
     assert len(stats) == 6
     assert statements
     assert all("practice_turns" not in s for s in statements)
+
+
+# ==== 더 연습이 필요한 단서 (2026-11-12 사용자 결정 "2번 이상 + 최근 놓침 (추천)") ============
+
+
+def test_needs_practice_cue_ids_from_ended_sessions_only(db):
+    child_id = db.child()
+    day = lambda n: datetime(2026, 11, n, 3, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+    # c1: 종료 세션에서 2번 놓침, 마지막도 놓침 → 목록
+    db.session(child_id, ended_at=day(1), cues={"c1": "missed", "c2": "missed"})
+    db.session(child_id, ended_at=day(2), cues={"c1": "missed", "c2": "missed"})
+    # c2: 그 뒤 찾음 → 빠짐 (기간 밖 오래된 판정도 누적으로 셈 — 아래 c6)
+    db.session(child_id, ended_at=day(3), cues={"c2": "found"})
+    # c3: 멈춘 세션 2번 놓침 → 제외 / c4: 진행 중 세션 → 제외
+    db.session(child_id, ended_at=day(4), status="stopped", cues={"c3": "missed"})
+    db.session(child_id, ended_at=day(5), status="stopped", cues={"c3": "missed"})
+    db.session(child_id, ended_at=None, status="in_progress", cues={"c4": "missed"})
+    db.session(child_id, ended_at=day(6), cues={"c4": "missed"})
+    # c5: 다른 아이 → 제외
+    other = db.child()
+    db.session(other, ended_at=day(1), cues={"c5": "missed"})
+    db.session(other, ended_at=day(2), cues={"c5": "missed"})
+    db.session(child_id, ended_at=day(7), cues={"c5": "missed"})
+    # c6: 오래전(10월 초) 두 번 놓침 — 기간 제한 없음
+    db.session(child_id, ended_at=datetime(2026, 10, 1, 3, tzinfo=timezone.utc), cues={"c6": "missed"})
+    db.session(child_id, ended_at=datetime(2026, 10, 2, 3, tzinfo=timezone.utc), cues={"c6": "missed"})
+
+    assert db.service().needs_practice_cue_ids(child_id) == ("c1", "c6")
+
+
+def test_needs_practice_cue_ids_empty_without_records(db):
+    assert db.service().needs_practice_cue_ids(db.child()) == ()
+
+
+def test_ended_cue_outcomes_query_does_not_touch_practice_turns(db):
+    child_id = db.child()
+    seed_baseline(db, child_id)
+    statements, stop = _capture_sql(db.engine)
+    try:
+        outcomes = db.repository.ended_cue_outcomes(child_id)
+    finally:
+        stop()
+
+    assert len(outcomes) == 15  # 이번 3세션×3 + 직전 3세션×2
+    assert statements
+    assert all("practice_turns" not in s for s in statements)

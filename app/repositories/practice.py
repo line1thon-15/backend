@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Child, ChildSettings, CueResult, PracticeSession, PracticeTurn
 from app.services.ports import (
+    EndedCueOutcome,
     EndedSessionStats,
     FirstAnswerKind,
     NewCueResult,
@@ -383,3 +384,16 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
             if isinstance(kind, str):
                 kinds.append(FirstAnswerKind(session_id=session_id, kind=kind))
         return kinds
+
+    def ended_cue_outcomes(self, child_id: UUID) -> list[EndedCueOutcome]:
+        """종료 세션의 단서 판정 전부(기간 제한 없음) — 멈춘·진행 중 세션 제외, practice_turns 읽지 않음."""
+        with self._session_factory() as db:
+            rows = db.execute(
+                select(CueResult.cue_id, CueResult.outcome, PracticeSession.ended_at)
+                .join(PracticeSession, PracticeSession.id == CueResult.session_id)
+                .where(PracticeSession.child_id == child_id, PracticeSession.status == "ended")
+            ).all()
+        return [
+            EndedCueOutcome(cue_id=cue_id, outcome=outcome, ended_at=_as_utc(ended_at))
+            for cue_id, outcome, ended_at in rows
+        ]
