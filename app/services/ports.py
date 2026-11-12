@@ -168,6 +168,7 @@ class PracticeSessionRecord:
     retry_of: UUID | None
     status: str
     turns: tuple[PracticeTurnRecord, ...]
+    normal_outcome: str | None = None  # 정상 상황 종료 세션만 (T-16 결과 level K4·K5)
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,7 @@ class NewPracticeSession:
     ai_role_name: str
     draw_index: int | None
     started_at: datetime
+    retry_of: UUID | None = None  # 다시 도전이면 직전 세션 (T-16, F-13 ③)
 
 
 @dataclass(frozen=True)
@@ -226,6 +228,8 @@ class PracticeRepository(Protocol):
         session_id: UUID,
         child_id: UUID,
     ) -> PracticeSessionRecord | None: ...
+
+    def get_cue_results(self, session_id: UUID) -> dict[str, str]: ...
 
     def record_answer_and_continue(
         self,

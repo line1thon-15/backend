@@ -1,4 +1,4 @@
-"""연습 세션 Repository (T-15) — SQL·ORM 코드는 여기에만 (Architecture "계층 규칙").
+"""연습 세션 Repository (T-15, 결과·다시 도전 T-16) — SQL·ORM 코드는 여기에만 (Architecture "계층 규칙").
 
 A17의 저장은 메서드 하나 = 한 트랜잭션이다(DECISIONS #82·#85). 서비스는 AI 호출과 응답 검증이 성공한 뒤에만 부른다.
 """
@@ -101,7 +101,7 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
             scenario_title=session.scenario_title,
             child_setup=session.child_setup,
             ai_role_name=session.ai_role_name,
-            retry_of=None,
+            retry_of=session.retry_of,
             draw_index=session.draw_index,
             hint_level=None,
             status="in_progress",
@@ -142,6 +142,7 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
                 ai_role_name=row.ai_role_name,
                 retry_of=row.retry_of,
                 status=row.status,
+                normal_outcome=row.normal_outcome,
                 turns=tuple(
                     PracticeTurnRecord(
                         turn_index=turn.turn_index,
@@ -156,6 +157,14 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
                     for turn in turns
                 ),
             )
+
+    def get_cue_results(self, session_id: UUID) -> dict[str, str]:
+        """저장된 판정 {cue_id: found|missed} — not_shown은 저장되지 않는다 (#109)."""
+        with self._session_factory() as db:
+            rows = db.execute(
+                select(CueResult.cue_id, CueResult.outcome).where(CueResult.session_id == session_id)
+            ).all()
+        return {cue_id: outcome for cue_id, outcome in rows}
 
     @staticmethod
     def _claim_turn(
