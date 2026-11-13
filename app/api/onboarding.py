@@ -10,7 +10,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.api.dependencies import require_child_id
+from app.api.dependencies import require_child_role
 from app.core.errors import AppError
 from app.services.onboarding import OnboardingService
 
@@ -92,7 +92,7 @@ class OnboardingResponse(BaseModel):
 def save_onboarding(
     payload: OnboardingRequest,
     request: Request,
-    child_id: UUID = Depends(require_child_id),
+    child_id: UUID = Depends(require_child_role),
 ) -> OnboardingResponse:
     allowed_app_type_ids = {
         app_type.id
