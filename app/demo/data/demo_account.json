@@ -1,0 +1,8 @@
+{
+  "note": "시연용 테스트 계정(N-11 예시 데이터) — 실제 개인정보 아님. 고정 시연 계정 방식(DECISIONS #30·#132). 보호자 비밀번호·아이 PIN은 이 파일에 두지 않고 적재 시 환경 변수 DEMO_GUARDIAN_PASSWORD·DEMO_CHILD_PIN으로 받는다(2026-11-13 사용자 답 \"환경 변수로 받기 (추천)\").",
+  "guardian_email": "demo-guardian@example.com",
+  "child_nickname": "시연이",
+  "child_grade": "H1",
+  "child_link_code": "DEMA23",
+  "consent_version": "v1"
+}
