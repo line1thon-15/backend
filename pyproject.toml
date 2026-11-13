@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-m \"not live_ai\" --import-mode=importlib"
+markers = [
+    "live_ai: 실행 중인 AI 서비스(AI_SERVICE_URL)를 호출하는 테스트 — 기본 실행에서 제외",
+]
+tmp_path_retention_policy = "none"

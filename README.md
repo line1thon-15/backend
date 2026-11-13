@@ -1,4 +1,4 @@
-# {{PROJECT_NAME}}
+# 2026_line1thon (backend)
 
 > 이 리포는 [start_coding](https://github.com/) 템플릿에서 생성되었다. 초기화 전이라면 아래 "새 프로젝트 시작"을 먼저 실행할 것.
 
@@ -29,12 +29,36 @@ bash scripts/init.sh "프로젝트명"
 
 ## 프로젝트 개요
 
-<!-- 초기화 후 docs 에이전트가 채운다 -->
+느린학습자(경계선 지능) 청소년이 위험하거나 어려운 상황을 AI와 안전하게 반복 연습하도록 돕는 반응형 웹 서비스의 **백엔드 저장소**다 (서비스명 미정, 근거: [docs/PRD.md](docs/PRD.md) 머리글·한 줄 정의). Python + FastAPI 백엔드이며 프론트·AI 서비스는 별도 저장소다([Architecture](docs/Architecture.md) 참조).
+
+### 현재 상태 (2026-11-11)
+
+- T-01(백엔드 테스트 하네스)이 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. **기능 API 중 연습 세션·결과 API(T-15·T-16, 아래)만 있다.**
+- T-15(연습 세션 API)가 구현돼 있다(리뷰 치명 0, QA 408 passed — `docs/Tasks.md` T-15 행 인용): `POST /api/v1/practice/sessions`(A15, 영역별 출제), `GET /api/v1/practice/sessions/{session_id}`(A16), `POST /api/v1/practice/sessions/{session_id}/turns`(A17, 답 제출·종료 판정). DB 마이그레이션 `20261112_04`(`practice_sessions`·`practice_turns`·`cue_results`). 제한: A15는 `mode:"area"`만 받고, 지금 콘텐츠로는 고등학생만 출제되며, 공개 영역 값은 `scam`·`identity_lending`·`friend_pressure`다. 자세한 내용과 미검증 항목은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-16(연습 결과 API·다시 도전)이 구현돼 있다(리뷰 치명 0, QA 480 passed — `docs/Tasks.md` T-16 행 인용): `GET /api/v1/practice/sessions/{session_id}/result`(A18, 찾은/놓친 단서 카드와 `can_retry`), `POST /api/v1/practice/sessions`에 `mode:"retry"`+`retry_of`(A15 다시 도전). 카드 색 값은 T-89에서 확정돼(K1 green / K2 yellow / K3 green / K4 green / K5 yellow, DECISIONS #120) A18이 기본 설정에서 동작한다(485 passed, 인용). 제한: 정상 상황 결과 조회는 1차 범위 밖이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-92(연습 API A15~A18 보호자 세션 403 `FORBIDDEN_ROLE`, T-15·T-16 재작업)이 구현돼 있다(692 passed — 인용): 유효한 보호자 세션으로 호출하면 403 `FORBIDDEN_ROLE`(저장 0건·AI 호출 0회)이고, 세션이 없거나 무효·만료면 401 `UNAUTHENTICATED`를 유지한다. 온보딩 A12는 백엔드 A 담당이라 아직 401이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-91(A17 동시 답 충돌·늦은 중복 답 방지, T-15 재작업)이 구현돼 있다(677 passed — 인용): `POST /api/v1/practice/sessions/{session_id}/turns` 요청이 `{choice_id, turn_index}`이고 둘 다 필수다. 현재 턴이 아닌 `turn_index`는 409 `TURN_ALREADY_ANSWERED`, 동시 충돌은 세션 상태에 따라 `TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`, `turn_index` 누락·음수·비정수는 422 `VALIDATION_ERROR`다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-90(아이용 성장·홈 API)이 구현돼 있다(656 passed — 인용): `GET /api/v1/me/growth`(A19), `GET /api/v1/me/home`(A13), 보호자 세션은 403. 보호자 리포트 A11 `metrics`도 채워진다. 제한: 기존 아이 API는 보호자 세션에 401(신규 A13·A19만 403), A19 오류 코드 규격이 Architecture에 없다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-45(배지·연속 기록)·T-46(성장 지표 3개·더 연습이 필요한 단서) 계산 계층이 구현돼 있고(공개 API 없음), T-25 보호자 리포트 `GET /api/v1/children/{child_id}/report`(A11)와 `guardian_notices` 테이블(마이그레이션 `20261112_05`)이 있다(통합 638 passed — 인용). 제한: A11 `summary`는 임시값(T-76), PostgreSQL 마이그레이션 미검증. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-87(AI 콘텐츠 읽기 전용 사본 + 보충 파일 + 서버 시작 시 검증)이 구현돼 있다(리뷰 치명 0, QA 6/6, 142 passed). `create_app()`이 시작 시 콘텐츠를 검증하며, 잘못되면 서버가 뜨지 않는다. 사본은 `app/content/data/ai/`(출처·고정 커밋·해시: `SOURCE.txt`), 보충 파일 `scenario_meta.json`·`platform_app_types.json`·`diagnosis.json`·`safety_stop.json`은 `app/content/data/`에 있다. 보충 파일은 **예시 데이터**이고 `safety_stop.json` 문구는 OQ 66 답을 받은 뒤 교체한다.
+- **AI 콘텐츠 사본 갱신 절차(T-87 완료 조건 ⑤, DECISIONS #107)** — AI 콘텐츠가 바뀌는 PR 때 백엔드 담당이 같이 갱신한다. 사본은 직접 수정하지 않고 통째로 다시 복사한다.
+  1. 복사 대상(원본 저장소 `line1thon-15/ai`, 브랜치 `feature/ai`): `content/clues.json` → `app/content/data/ai/clues.json`, `content/scenarios/*.json` → `app/content/data/ai/scenarios/`. `content/safety_cases.json`·`safety_messages.json`은 복사 대상이 아니다.
+  2. 새 원본 커밋으로 고정 커밋을 갱신하고 `app/content/data/ai/SOURCE.txt`의 고정 커밋·복사일을 고친다.
+  3. `SOURCE.txt`의 SHA-256을 새 값으로 갱신한다(LF 기준 = git blob 내용, `git show <커밋>:<원본 경로> | sha256sum`).
+  4. 검증: `.venv/Scripts/python.exe -m pytest` — `tests/unit/test_content_loader.py`의 사본 무결성 테스트(`test_ai_copy_matches_pinned_source_hashes`)가 CRLF→LF 정규화 후 SOURCE.txt 해시와 대조하고, 로더 검증 테스트가 새 콘텐츠의 구조를 확인한다.
+- CI(`.github/workflows/ci.yml`)는 `dev`·`main` 대상 PR에서 pytest를 Fake AI로 돌리도록 작성돼 있다. **GitHub에서 실제로 실행되는지는 아직 확인하지 못했다**(원격 저장소 미연결, 미검증).
+- T-01은 docs/Tasks.md 기준 "완료"다(리뷰·QA 통과, 치명 결함 0건). CI의 GitHub 실제 실행은 원격 저장소 연결 뒤 확인한다.
 
 ## 구조
 
 ```
-{{PROJECT_NAME}}/
+2026_line1thon/
+├── app/               # 백엔드 소스 (api·services·repositories·db·core·ai_client)
+├── tests/             # pytest (unit·integration)
+│   └── contracts/ai/  # AI 계약 샘플 12개 사본 (ai 저장소 feature/ai 331d2c6 고정, 직접 수정 금지, 출처 SOURCE.txt)
+├── requirements.txt·requirements-dev.txt·pyproject.toml
+├── .env.example       # 환경 변수 플레이스홀더 (실제 값은 .env에만)
+├── .github/workflows/ci.yml # 백엔드 CI (dev·main 대상 PR에서 pytest)
 ├── AGENTS.md          # 마스터 규칙 (단일 원본)
 ├── CLAUDE.md          # Claude Code 어댑터
 ├── docs/              # 프로젝트 문서 + ToolPacks.md(스킬·MCP 팩) + KitFeedback.md(템플릿 개선 대기열)
@@ -70,4 +94,17 @@ bash scripts/init.sh "프로젝트명"
 
 ## 실행/빌드/테스트
 
-<!-- 검증된 명령어는 docs/CodingRules.md "검증된 명령어" 절에 기록 후 여기에 반영 -->
+원문은 [docs/CodingRules.md "검증된 명령어"](docs/CodingRules.md#검증된-명령어)다. 아래 명령은 Git Bash에서 저장소 루트 기준이며 시스템 Python 3.13으로 검증됐다. 환경 변수는 [.env.example](.env.example)을 참조한다.
+
+```bash
+# 가상환경 생성
+python -m venv .venv
+# 의존성 설치
+.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+# 테스트 (live_ai 마커 기본 제외)
+.venv/Scripts/python.exe -m pytest
+# dev 서버 (포트 8080)
+.venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8080
+# 헬스 확인 (dev 서버 기동 중)
+curl -sS -i http://localhost:8080/api/v1/health
+```
