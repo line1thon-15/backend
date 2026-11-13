@@ -38,3 +38,20 @@ def test_unknown_ai_client_value_is_rejected():
 def test_http_client_is_not_available_in_harness_scope():
     with pytest.raises(NotImplementedError):
         build_practice_ai(make_settings(ai_client="http"))
+
+
+def test_fake_uses_content_scenario_clues():
+    from app.ai_client.ports import VariantRequest
+    from app.content.loader import load_content
+
+    content = load_content()
+    practice_ai = build_practice_ai(
+        make_settings(ai_client="fake"),
+        {sid: [clue.id for clue in entry.scenario.clues] for sid, entry in content.scenarios.items()},
+    )
+
+    for scenario_id, entry in content.scenarios.items():
+        variant = practice_ai.variant(
+            VariantRequest(scenario_id=scenario_id, platform="p", tone="t", context="c")
+        ).variant
+        assert [clue.id for clue in variant.clues] == [clue.id for clue in entry.scenario.clues]

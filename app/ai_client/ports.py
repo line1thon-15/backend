@@ -19,6 +19,13 @@ ChoicesSource = Literal["model", "template", "none"]
 ScenarioId = Annotated[str, Field(min_length=1, max_length=64)]
 
 
+class AIUnavailableError(Exception):
+    """AI 서비스 실패(비2xx·연결 실패·시간 초과·응답 검증 실패) — 공개 API에서는 503 `AI_UNAVAILABLE`.
+
+    services가 포트만 import하고 잡을 수 있게 포트 모듈에 둔다(Architecture "백엔드 쪽 처리" 행).
+    """
+
+
 class _OutboundModel(BaseModel):
     # AI 서비스로 나가는 값 — 규격에 없는 필드(아이 식별 정보 등)가 실리지 않게 거부한다 (N-05).
     model_config = ConfigDict(extra="forbid", frozen=True)

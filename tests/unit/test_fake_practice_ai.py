@@ -302,3 +302,30 @@ def test_summary_mentions_only_input_numbers():
 
     assert "0" in response.summary
     assert not any(ch.isdigit() and ch != "0" for ch in response.summary)
+
+
+# ---- T-15: 시나리오별 단서 (dev 서버·E2E에서 VA2 검증 통과용) ----------------------------
+
+
+def test_variant_uses_scenario_clue_ids_when_mapped():
+    fake = FakePracticeAI(scenario_clue_ids={"scam_a": ("x1", "x2"), "scam_b": ("y1",)})
+
+    a = fake.variant(VariantRequest(scenario_id="scam_a", platform="p", tone="t", context="c")).variant
+    b = fake.variant(VariantRequest(scenario_id="scam_b", platform="p", tone="t", context="c")).variant
+
+    assert [clue.id for clue in a.clues] == ["x1", "x2"]
+    assert [clue.id for clue in b.clues] == ["y1"]
+    assert [clue.at_opening for clue in a.clues] == [True, False]
+
+
+def test_variant_falls_back_to_default_clues_for_unmapped_scenario():
+    fake = FakePracticeAI(clue_ids=("d1", "d2"), scenario_clue_ids={"scam_a": ("x1",)})
+
+    variant = fake.variant(VariantRequest(scenario_id="other", platform="p", tone="t", context="c")).variant
+
+    assert [clue.id for clue in variant.clues] == ["d1", "d2"]
+
+
+def test_fake_rejects_empty_scenario_clue_ids():
+    with pytest.raises(ValueError):
+        FakePracticeAI(scenario_clue_ids={"scam_a": ()})

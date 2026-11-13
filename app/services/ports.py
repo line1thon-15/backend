@@ -127,3 +127,132 @@ class OnboardingRepository(Protocol):
         start_difficulty: int,
         completed_at: datetime,
     ) -> bool: ...
+
+
+# ---- 연습 (T-15) ----------------------------------------------------------------
+
+
+class PracticeStateConflict(Exception):
+    """저장 시점에 세션이 이미 진행 중이 아니거나 그 턴에 이미 답이 기록됨 — 같은 세션 동시 요청."""
+
+
+@dataclass(frozen=True)
+class PracticeChildProfile:
+    grade: str
+    favorite_apps: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PracticeTurnRecord:
+    turn_index: int
+    ai_line: str
+    choices: tuple[dict, ...]  # [{id, text, kind}] — kind는 공개 응답에 싣지 않는다
+    chosen_choice_id: str | None
+    substituted: bool
+    target_clue_id: str | None
+    revealed_clue_ids: tuple[str, ...]
+    ai_status: str
+
+
+@dataclass(frozen=True)
+class PracticeSessionRecord:
+    session_id: UUID
+    child_id: UUID
+    mode: str
+    area: str
+    scenario_id: str
+    is_normal: bool
+    target_cue_ids: tuple[str, ...]
+    variant: dict
+    ai_role_name: str
+    retry_of: UUID | None
+    status: str
+    turns: tuple[PracticeTurnRecord, ...]
+
+
+@dataclass(frozen=True)
+class NewPracticeSession:
+    child_id: UUID
+    mode: str
+    area: str
+    subtype: str | None
+    scenario_id: str
+    is_normal: bool
+    target_cue_ids: tuple[str, ...]
+    variant: dict
+    scenario_title: str
+    child_setup: str
+    ai_role_name: str
+    draw_index: int | None
+    started_at: datetime
+
+
+@dataclass(frozen=True)
+class NewPracticeTurn:
+    turn_index: int
+    ai_line: str
+    choices: tuple[dict, ...]
+    substituted: bool
+    target_clue_id: str | None
+    revealed_clue_ids: tuple[str, ...]
+    ai_status: str
+
+
+@dataclass(frozen=True)
+class NewCueResult:
+    cue_id: str
+    outcome: str  # found | missed
+
+
+class PracticeRepository(Protocol):
+    def get_child_profile(self, child_id: UUID) -> PracticeChildProfile | None: ...
+
+    def latest_variant_axes(
+        self,
+        child_id: UUID,
+        scenario_ids: list[str],
+    ) -> dict[str, tuple[str, str]]: ...
+
+    def count_new_draws(self, child_id: UUID) -> int: ...
+
+    def create_session(
+        self,
+        session: NewPracticeSession,
+        first_turn: NewPracticeTurn,
+    ) -> UUID: ...
+
+    def get_session(
+        self,
+        session_id: UUID,
+        child_id: UUID,
+    ) -> PracticeSessionRecord | None: ...
+
+    def record_answer_and_continue(
+        self,
+        *,
+        session_id: UUID,
+        answered_turn_index: int,
+        chosen_choice_id: str,
+        next_turn: NewPracticeTurn,
+    ) -> None: ...
+
+    def record_answer_and_end(
+        self,
+        *,
+        session_id: UUID,
+        child_id: UUID,
+        answered_turn_index: int,
+        chosen_choice_id: str,
+        cue_results: list[NewCueResult],
+        ended_at: datetime,
+    ) -> None: ...
+
+    def record_answer_and_stop(
+        self,
+        *,
+        session_id: UUID,
+        answered_turn_index: int,
+        chosen_choice_id: str,
+        stop_turn: NewPracticeTurn,
+        stopped_at: datetime,
+    ) -> None: ...
