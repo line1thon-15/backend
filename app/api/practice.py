@@ -46,6 +46,9 @@ class AnswerRequest(BaseModel):
 
     # 길이 상한은 두지 않는다 — 현재 턴에 없는 id는 404·409 판정 뒤 서비스가 422 INVALID_CHOICE로 (리뷰 권고 #4)
     choice_id: str = Field(min_length=1)
+    # 답하는 턴 번호 — A15·A16 응답의 turn.turn_index를 그대로 보낸다 (T-91, DECISIONS #128).
+    # 현재 턴이 아니면 서비스가 409 TURN_ALREADY_ANSWERED. 누락·음수·문자열·실수·bool은 422 VALIDATION_ERROR.
+    turn_index: int = Field(ge=0, strict=True)
 
 
 class ChoiceView(BaseModel):
@@ -172,7 +175,12 @@ def answer_practice_turn(
     child_id: UUID = Depends(require_child_id),
 ) -> PracticeSessionView:
     return _view(
-        _service(request).answer(child_id=child_id, session_id=session_id, choice_id=payload.choice_id)
+        _service(request).answer(
+            child_id=child_id,
+            session_id=session_id,
+            choice_id=payload.choice_id,
+            turn_index=payload.turn_index,
+        )
     )
 
 

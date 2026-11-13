@@ -126,6 +126,12 @@ def _session_stopped() -> AppError:
     return AppError(code="SESSION_STOPPED", status_code=409, message="practice session was stopped")
 
 
+def _turn_already_answered() -> AppError:
+    return AppError(
+        code="TURN_ALREADY_ANSWERED", status_code=409, message="this turn was already answered"
+    )
+
+
 def _no_scenario() -> AppError:
     return AppError(code="NO_SCENARIO_AVAILABLE", status_code=409, message="no practice scenario is available")
 
@@ -329,7 +335,9 @@ class PracticeService:
 
     # ---- A17 ------------------------------------------------------------------
 
-    def answer(self, *, child_id: UUID, session_id: UUID, choice_id: str) -> SessionOutput:
+    def answer(
+        self, *, child_id: UUID, session_id: UUID, choice_id: str, turn_index: int
+    ) -> SessionOutput:
         record = self._repository.get_session(session_id, child_id)
         if record is None:
             raise _session_not_found()
@@ -339,6 +347,10 @@ class PracticeService:
             raise _session_stopped()
 
         current = record.turns[-1]
+        if turn_index != current.turn_index:
+            # 이미 답한 턴에 대한 늦은 요청(더블탭 두 번째 등) — 선택지 id는 매 턴 c1~c3이라
+            # choice_id만으로는 다음 턴의 정당한 답과 구별할 수 없다 (T-91 사용자 결정 2)
+            raise _turn_already_answered()
         chosen = next((choice for choice in current.choices if choice["id"] == choice_id), None)
         if chosen is None:
             raise AppError(code="INVALID_CHOICE", status_code=422, message="choice is not in the current turn")
@@ -390,8 +402,7 @@ class PracticeService:
                     ended_at=self._clock(),
                 )
             except PracticeStateConflict as exc:
-                # 같은 세션의 다른 요청이 먼저 저장함 — 이 요청은 끝난 세션에 대한 답 (리뷰 치명 #1)
-                raise _session_ended() from exc
+                raise self._conflict_error(session_id=session_id, child_id=child_id) from exc
             return self._output(record, status="ended", turn=None)
 
         try:
@@ -428,8 +439,7 @@ class PracticeService:
                     stopped_at=self._clock(),
                 )
             except PracticeStateConflict as exc:
-                # 같은 세션의 다른 요청이 먼저 저장함 — 이 요청은 끝난 세션에 대한 답 (리뷰 치명 #1)
-                raise _session_ended() from exc
+                raise self._conflict_error(session_id=session_id, child_id=child_id) from exc
             return self._output(record, status="stopped", turn=stop_turn)
 
         next_turn = NewPracticeTurn(
@@ -449,9 +459,23 @@ class PracticeService:
                 next_turn=next_turn,
             )
         except PracticeStateConflict as exc:
-            # 같은 세션의 다른 요청이 먼저 저장함 — 이 요청은 끝난 세션에 대한 답 (리뷰 치명 #1)
-            raise _session_ended() from exc
+            raise self._conflict_error(session_id=session_id, child_id=child_id) from exc
         return self._output(record, status="in_progress", turn=next_turn)
+
+    def _conflict_error(self, *, session_id: UUID, child_id: UUID) -> AppError:
+        """같은 세션의 다른 요청이 먼저 저장해 이번 저장이 충돌함 — 세션을 다시 읽어 상태별 409 (DECISIONS #128, T-91).
+
+        이번 트랜잭션은 이미 되돌려졌다(리포지토리 `_write`). 충돌을 무조건 SESSION_ENDED로 보내지 않는다 —
+        진행 중이면 먼저 처리된 답이 다음 턴을 만든 것이므로 TURN_ALREADY_ANSWERED(백엔드 A 리뷰 PR #13 #1).
+        """
+        current = self._repository.get_session(session_id, child_id)
+        if current is None:
+            return _session_not_found()
+        if current.status == "ended":
+            return _session_ended()
+        if current.status == "stopped":
+            return _session_stopped()
+        return _turn_already_answered()
 
     # ---- A18 ------------------------------------------------------------------
 
