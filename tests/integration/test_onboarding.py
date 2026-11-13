@@ -142,6 +142,23 @@ def test_onboarding_requires_child_login(onboarding_client):
     assert response.json()["error"]["code"] == "UNAUTHENTICATED"
 
 
+def test_onboarding_rejects_guardian_session(onboarding_client):
+    credentials = {"email": "parent@example.com", "password": "correct-horse-42"}
+    registration = onboarding_client.post("/api/v1/guardians", json=credentials)
+    assert registration.status_code == 201
+
+    login = onboarding_client.post("/api/v1/auth/guardian/login", json=credentials)
+    assert login.status_code == 200
+
+    response = onboarding_client.put(
+        "/api/v1/me/onboarding",
+        json=_onboarding_payload(),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
+
+
 @pytest.mark.parametrize(
     "answers",
     [
