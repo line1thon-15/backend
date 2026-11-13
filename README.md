@@ -33,8 +33,9 @@ bash scripts/init.sh "프로젝트명"
 
 ### 현재 상태 (2026-11-11)
 
-- T-01(백엔드 테스트 하네스)이 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. **기능 API 중 연습 세션 API(T-15, 아래)만 있다.**
+- T-01(백엔드 테스트 하네스)이 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. **기능 API 중 연습 세션·결과 API(T-15·T-16, 아래)만 있다.**
 - T-15(연습 세션 API)가 구현돼 있다(리뷰 치명 0, QA 408 passed — `docs/Tasks.md` T-15 행 인용): `POST /api/v1/practice/sessions`(A15, 영역별 출제), `GET /api/v1/practice/sessions/{session_id}`(A16), `POST /api/v1/practice/sessions/{session_id}/turns`(A17, 답 제출·종료 판정). DB 마이그레이션 `20261112_04`(`practice_sessions`·`practice_turns`·`cue_results`). 제한: A15는 `mode:"area"`만 받고, 지금 콘텐츠로는 고등학생만 출제되며, 공개 영역 값은 `scam`·`identity_lending`·`friend_pressure`다. 자세한 내용과 미검증 항목은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-16(연습 결과 API·다시 도전)이 구현돼 있다(리뷰 치명 0, QA 480 passed — `docs/Tasks.md` T-16 행 인용): `GET /api/v1/practice/sessions/{session_id}/result`(A18, 찾은/놓친 단서 카드와 `can_retry`), `POST /api/v1/practice/sessions`에 `mode:"retry"`+`retry_of`(A15 다시 도전). 카드 색 값은 T-89에서 확정돼(K1 green / K2 yellow / K3 green / K4 green / K5 yellow, DECISIONS #120) A18이 기본 설정에서 동작한다(485 passed, 인용). 제한: 정상 상황 결과 조회는 1차 범위 밖이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-87(AI 콘텐츠 읽기 전용 사본 + 보충 파일 + 서버 시작 시 검증)이 구현돼 있다(리뷰 치명 0, QA 6/6, 142 passed). `create_app()`이 시작 시 콘텐츠를 검증하며, 잘못되면 서버가 뜨지 않는다. 사본은 `app/content/data/ai/`(출처·고정 커밋·해시: `SOURCE.txt`), 보충 파일 `scenario_meta.json`·`platform_app_types.json`·`diagnosis.json`·`safety_stop.json`은 `app/content/data/`에 있다. 보충 파일은 **예시 데이터**이고 `safety_stop.json` 문구는 OQ 66 답을 받은 뒤 교체한다.
 - **AI 콘텐츠 사본 갱신 절차(T-87 완료 조건 ⑤, DECISIONS #107)** — AI 콘텐츠가 바뀌는 PR 때 백엔드 담당이 같이 갱신한다. 사본은 직접 수정하지 않고 통째로 다시 복사한다.
   1. 복사 대상(원본 저장소 `line1thon-15/ai`, 브랜치 `feature/ai`): `content/clues.json` → `app/content/data/ai/clues.json`, `content/scenarios/*.json` → `app/content/data/ai/scenarios/`. `content/safety_cases.json`·`safety_messages.json`은 복사 대상이 아니다.

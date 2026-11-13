@@ -1,15 +1,16 @@
 """AI 응답 검증 — 위반이면 `AIUnavailableError` → 503 `AI_UNAVAILABLE` (Architecture "1차 내부 API v1").
 
-VA1~VA4(variant) · ST1~ST5(start) · TU1~TU4(turn ok·blocked) · J1'~J4'(judge) · 선택지 규칙 C(#97).
+VA1~VA4(variant) · ST1~ST5(start) · TU1~TU4(turn ok·blocked) · J1'~J4'(judge) · V1'~V3'(feedback, #101 — T-16) · 선택지 규칙 C(#97).
 safe_reply는 `status`만 읽고 검증하지 않는다(#118).
 열 길이(턴 선택지 id ≤ 8, 세션 제목·설정·역할 이름)는 DB 열 상한을 넘는 값을 저장 전에 막는 백엔드 추가 검증이다.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from app.ai_client.ports import (
     AIUnavailableError,
     Choice,
+    FeedbackResponse,
     JudgeResponse,
     Message,
     StartResponse,
@@ -124,3 +125,14 @@ def check_judge(
             _fail("J3'")
     if response.source not in ("choices", "fixed"):
         _fail("J4'")
+
+
+def check_feedback(response: FeedbackResponse, *, stored: Mapping[str, str]) -> None:
+    """V1'~V3' (#101). stored = 저장된 cue_results {clue_id: found|missed}."""
+    card_ids = [card.clue_id for card in response.cards]
+    if len(card_ids) != len(set(card_ids)) or set(card_ids) != set(stored):
+        _fail("V1'")
+    if any(_blank(card.text) for card in response.cards) or _blank(response.closing_line):
+        _fail("V2'")
+    if any(card.result != stored[card.clue_id] for card in response.cards):
+        _fail("V3'")

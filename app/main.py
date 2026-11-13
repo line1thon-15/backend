@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from random import Random
 from uuid import uuid4
@@ -22,6 +22,7 @@ from app.content.loader import load_content
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.session import make_engine, make_session_factory
+from app.domain.practice_result import CARD_LEVEL_BY_KEY
 from app.repositories.auth import SqlAlchemyAuthRepository
 from app.repositories.children import SqlAlchemyChildrenRepository
 from app.repositories.db_health import SqlAlchemyDatabaseProbe
@@ -123,6 +124,7 @@ def create_app(
     content_dir: Path = DEFAULT_CONTENT_DIR,
     practice_ai: PracticeAI | None = None,
     rng_factory: Callable[[], Random] = Random,
+    card_level_by_key: Mapping[str, str] = CARD_LEVEL_BY_KEY,
 ) -> FastAPI:
     settings = settings or Settings()
     # 콘텐츠 검증 실패면 ContentValidationError로 시작하지 않는다 (T-87, DECISIONS #111·#118)
@@ -160,6 +162,8 @@ def create_app(
         practice_ai,
         content,
         rng_factory=rng_factory,
+        # 결과 카드 키→SignalLevel — PRD OQ 63·24 답 전에는 비어 있다(테스트가 주입) (T-16, #75)
+        card_level_by_key=card_level_by_key,
     )
 
     @app.middleware("http")
