@@ -1,13 +1,15 @@
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.core.config import Settings
 from app.db.base import Base
-from app.db.models import Child, ChildSettings
+from app.core.security import hash_session_token
+from app.db.models import AuthSession, Child, ChildSettings
 from app.main import create_app
 
 
@@ -157,6 +159,44 @@ def test_onboarding_rejects_guardian_session(onboarding_client):
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
+
+
+def test_onboarding_rejects_invalid_session_token(onboarding_client):
+    onboarding_client.cookies.set("sid", "not-a-valid-session-token")
+
+    response = onboarding_client.put(
+        "/api/v1/me/onboarding",
+        json=_onboarding_payload(),
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+def test_onboarding_rejects_expired_guardian_session(onboarding_client):
+    credentials = {"email": "parent@example.com", "password": "correct-horse-42"}
+    registration = onboarding_client.post("/api/v1/guardians", json=credentials)
+    assert registration.status_code == 201
+
+    login = onboarding_client.post("/api/v1/auth/guardian/login", json=credentials)
+    assert login.status_code == 200
+    session_token = login.cookies.get("sid")
+    assert session_token is not None
+
+    with onboarding_client.app.state.session_factory.begin() as session:
+        session.execute(
+            update(AuthSession)
+            .where(AuthSession.token_hash == hash_session_token(session_token))
+            .values(expires_at=datetime(2000, 1, 1, tzinfo=timezone.utc))
+        )
+
+    response = onboarding_client.put(
+        "/api/v1/me/onboarding",
+        json=_onboarding_payload(),
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
 
 
 @pytest.mark.parametrize(
