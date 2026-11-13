@@ -221,6 +221,45 @@ def test_scenario_first_received_in_stopped_session_is_not_first_seen(db):
     assert values["missed_ratio"].current == pytest.approx((3 + 2 + 1) / (9 + 2 + 1))
 
 
+# ==== 최초 세션 동률 정렬 (T-93 — 재리뷰 ①) ==============================================
+
+
+def test_first_session_with_same_started_at_prefers_original_over_retry(db):
+    child_id = db.child()
+    seed_baseline(db, child_id)
+    tie = datetime(2026, 11, 8, 3, 0, 0, tzinfo=timezone.utc)
+    original = db.session(
+        child_id, ended_at=CUR_AT, scenario_id="scn_tie", started_at=tie, cues={"c1": "found", "c2": "missed"}
+    )
+    db.session(child_id, ended_at=CUR_AT, scenario_id="scn_tie", mode="retry", started_at=tie, cues={"c1": "found"})
+
+    assert db.repository.first_session_ids(child_id, ["scn_tie"]) == {"scn_tie": original}
+    values = by_id(db.service().metrics(child_id))
+    assert values["first_seen_accuracy"].current == pytest.approx((6 + 1) / (9 + 2))
+
+
+def test_first_session_still_earliest_started_at_when_not_tied(db):
+    child_id = db.child()
+    early = datetime(2026, 11, 7, 3, 0, 0, tzinfo=timezone.utc)
+    late = datetime(2026, 11, 8, 3, 0, 0, tzinfo=timezone.utc)
+    later_original = db.session(child_id, ended_at=CUR_AT, scenario_id="scn_a", started_at=late)
+    earlier_original = db.session(child_id, ended_at=CUR_AT, scenario_id="scn_a", started_at=early)
+    earlier_retry = db.session(child_id, ended_at=CUR_AT, scenario_id="scn_b", mode="retry", started_at=early)
+    db.session(child_id, ended_at=CUR_AT, scenario_id="scn_b", started_at=late)
+
+    first = db.repository.first_session_ids(child_id, ["scn_a", "scn_b"])
+
+    assert first == {"scn_a": earlier_original, "scn_b": earlier_retry}
+    assert later_original not in first.values()
+
+
+def test_first_session_of_retry_only_scenario_is_that_retry(db):
+    child_id = db.child()
+    retry_id = db.session(child_id, ended_at=CUR_AT, scenario_id="scn_r", mode="retry")
+
+    assert db.repository.first_session_ids(child_id, ["scn_r", "scn_none"]) == {"scn_r": retry_id}
+
+
 # ==== 한국 시간 경계 ==================================================================
 
 

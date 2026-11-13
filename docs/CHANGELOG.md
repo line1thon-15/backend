@@ -44,6 +44,7 @@
 - 2026-11-08 프로젝트 초기화 (start_coding 템플릿) — 날짜는 최초 커밋 5070035 기준
 
 ### Changed
+- 2026-11-13 T-93 성장 지표 "처음 본 상황에서 찾은 신호"(first_seen_accuracy)의 최초 세션 판정 정렬 기준 명시(재작업, T-46 완료분; 구현 1986a19) — `app/repositories/practice.py`의 `first_session_ids`가 시작 시각이 같으면 최초 출제를 다시 도전(`mode="retry"`)보다 먼저 고른다(정렬: `started_at` → 다시 도전 여부 → `draw_index` → `id`). `draw_index` NULL 정렬 순서가 DB마다 달라 그 값에 기대지 않기 위함. 인터페이스·응답 형식 변경 없음. 테스트 `tests/integration/test_growth_metrics_service.py`, 695 passed(호출자 보고, 인용 — 이번 세션 미실행)
 - 2026-11-12 T-92 A15~A18 보호자 세션 응답 변경 — 유효한 보호자 세션 호출이 401 `UNAUTHENTICATED`에서 403 `FORBIDDEN_ROLE`로 바뀜. 세션 없음·무효·만료는 401 그대로. 온보딩 A12는 백엔드 A 담당이라 이번 범위에서 제외(아직 401)
 - 2026-11-12 T-91 A17 요청 형식 변경 — `turn_index`가 없거나 음수이거나 정수가 아니면 422 `VALIDATION_ERROR`. 기존에 `choice_id`만 보내던 클라이언트는 422를 받는다(프론트 반영은 T-18 범위: `TURN_ALREADY_ANSWERED`면 A16으로 현재 턴 재조회, 근거: docs/Tasks.md T-91 행). 동시 충돌 시 진행 중인데 `SESSION_ENDED`가 나가던 동작이 `TURN_ALREADY_ANSWERED`로 바뀜
 - 2026-11-11 T-86 AI 포트·Fake를 AI 계약 v1로 재정의(브랜치 `feature/T-86-ai-contract-v1-port`, 미커밋) — `app/ai_client/ports.py`는 `PracticeAI`(`variant`·`start`·`turn`·`judge`·`feedback`)와 `SummaryAI`(`summary`)로, `fake.py`는 `FakePracticeAI`·`FakeSummaryAI`로 바뀌고 `opening`·`ScenarioSpec`·`TurnResult`·`OpeningResult`는 삭제됨(DECISIONS #96·#97·#98·#104·#108, ADR-0017). 영역 ID는 `scam`·`identity_lending`·`friend_pressure`로 변경(옛 `name_lending`·`friend_request` 삭제). T-85가 추가한 `TurnResult` 테스트 3개는 모델 삭제로 함께 제거. pytest 55 → 113 passed(QA 직접 재실행 확인)

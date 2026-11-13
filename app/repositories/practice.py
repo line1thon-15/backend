@@ -345,7 +345,13 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
                     PracticeSession.child_id == child_id,
                     PracticeSession.scenario_id.in_(sorted(set(scenario_ids))),
                 )
-                .order_by(PracticeSession.started_at, PracticeSession.draw_index, PracticeSession.id)
+                # 시작 시각이 같으면 최초 출제를 다시 도전보다 먼저 — draw_index NULL 정렬은 DB마다 달라 기대지 않는다 (T-93)
+                .order_by(
+                    PracticeSession.started_at,
+                    case((PracticeSession.mode == "retry", 1), else_=0),
+                    PracticeSession.draw_index,
+                    PracticeSession.id,
+                )
             ).all()
         first: dict[str, UUID] = {}
         for scenario_id, session_id in rows:
