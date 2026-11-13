@@ -8,9 +8,10 @@ DECISIONS #88·#94(한국 시간)·#93(지표 (다) 원천 = 첫 답 kind)·#116
 - `level`(지표 신호등)은 PRD OQ 63 ② 미결이라 항상 None — 규칙을 지어내지 않는다.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from types import MappingProxyType
 
 from app.domain.service_time import SERVICE_TZ, service_date  # noqa: F401 — 한국 시간 1곳 (#94)
 
@@ -21,6 +22,17 @@ MISSED_RATIO = "missed_ratio"
 FIRST_SEEN_ACCURACY = "first_seen_accuracy"
 AHEAD_OF_AI_RATIO = "ahead_of_ai_ratio"
 METRIC_IDS: tuple[str, ...] = (MISSED_RATIO, FIRST_SEEN_ACCURACY, AHEAD_OF_AI_RATIO)
+
+# MetricView.label 설정 상수 1곳 — 아이 Y8(A19)과 보호자 G3(A11)가 같은 문구를 쓴다(T-90).
+# 2026-11-12 사용자 답 "쉬운 말 문구 (추천)", 선택지 설명 원문 "① '놓친 신호' ② '처음 본 상황에서 찾은 신호'
+# ③ '먼저 알아챈 횟수'. 느린학습자용 쉬운 말(N-03). 아이 Y8과 보호자 G3가 같은 문구를 써요."
+METRIC_LABELS: Mapping[str, str] = MappingProxyType(
+    {
+        MISSED_RATIO: "놓친 신호",
+        FIRST_SEEN_ACCURACY: "처음 본 상황에서 찾은 신호",
+        AHEAD_OF_AI_RATIO: "먼저 알아챈 횟수",
+    }
+)
 
 # 지표 (다)의 분자 — 첫 답에서 PRD '의심' 선택지(AI 계약 kind = correct)를 고른 세션 (#93·#97·#115)
 AHEAD_KIND = "correct"

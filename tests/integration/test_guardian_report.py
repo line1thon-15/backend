@@ -6,8 +6,8 @@
 테스트 전략 "IDOR·보호자 응답 금지 키 0건", Tasks T-25 행(금지 키 목록·`status = ended`만·영역 값).
 
 연습 기록은 DB에 직접 넣는다(AI 호출 없음). DB는 테스트마다 pytest tmp_path SQLite 파일.
-`notices`는 guardian_notices 테이블에서 채운다(2026-11-12 사용자 답 "T-25에 포함 (추천)"). `metrics`는 T-46 병합 전이라
-빈 목록, `summary`는 DECISIONS #123 고정 임시값. 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
+`notices`는 guardian_notices 테이블에서 채운다(2026-11-12 사용자 답 "T-25에 포함 (추천)"). `metrics`는 T-46 계산 서비스
+결과(T-90 — 2026-11-12 사용자 답 "T-90에서 연결 (추천)", 시계 주입), `summary`는 DECISIONS #123 고정 임시값. 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
 (2026-11-12 사용자 답 "금지 범위 좁히기 (추천)").
 """
 
@@ -31,6 +31,14 @@ from app.main import create_app
 CONTENT = load_content()
 MARKER = "GUARDIAN-REPORT-MARKER-5b1e"
 T0 = datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)
+# T-90: 지표 연결 후 시계 주입 — 한국 시간 2026-11-12 12:00 → 이번 기간 [11-06, 11-12], 직전 [10-30, 11-05]
+NOW = datetime(2026, 11, 12, 3, 0, tzinfo=timezone.utc)
+# 2026-11-12 사용자 답 "쉬운 말 문구 (추천)" — "아이 Y8과 보호자 G3가 같은 문구를 써요."
+METRIC_LABELS = {
+    "missed_ratio": "놓친 신호",
+    "first_seen_accuracy": "처음 본 상황에서 찾은 신호",
+    "ahead_of_ai_ratio": "먼저 알아챈 횟수",
+}
 
 # Architecture "보호자용 응답 금지 필드" + Tasks T-25 행 + 원문·마스킹·이미지·감정 상태의 흔한 키 이름.
 # `feedback`·`sentences`(심화 연습 피드백 DeepFeedbackView) 중 `sentences`는 GuardianSummaryView가 쓰므로
@@ -156,6 +164,7 @@ class Env:
         status: str = "ended",
         ended_at: datetime | None = T0,
         outcomes: dict[str, str] | None = None,
+        scenario_id: str = "scam_dm_parttime_01",
     ) -> UUID:
         """연습 세션 1개 + 대사·선택지 문장에 표지가 든 턴 1개 + cue_results."""
         with self.session_factory.begin() as db:
@@ -164,7 +173,7 @@ class Env:
                 mode="area",
                 area=area,
                 subtype=None,
-                scenario_id="scam_dm_parttime_01",
+                scenario_id=scenario_id,
                 is_normal=False,
                 target_cue_ids=list((outcomes or {}).keys()),
                 variant={"opening_line": MARKER, "title": MARKER},
@@ -207,7 +216,8 @@ class Env:
 @pytest.fixture
 def env(tmp_path) -> Iterator[Env]:
     app = create_app(
-        Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'report.db').as_posix()}", ai_client="fake")
+        Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'report.db').as_posix()}", ai_client="fake"),
+        clock=lambda: NOW,
     )
     Base.metadata.create_all(app.state.engine)
     with TestClient(app) as client:
@@ -282,7 +292,19 @@ def test_report_placeholders_for_sources_not_on_this_branch(env, family):
     body = env.report(child["child_id"], guardian).json()
 
     assert body["notices"] == []  # 알림 행 없음
-    assert body["metrics"] == []
+    # T-90(2026-11-12 사용자 답 "T-90에서 연결 (추천)"): 지표는 T-46 계산 — 기록 1개라 모두 비교 불가
+    assert body["metrics"] == [
+        {
+            "metric_id": metric_id,
+            "label": label_text,
+            "status": "insufficient",
+            "level": None,
+            "current": None,
+            "previous": None,
+            "trend": [],
+        }
+        for metric_id, label_text in METRIC_LABELS.items()
+    ]
     # 2026-11-12 사용자 답 "아직 기록이 적어요 (추천)" — T-76 전 임시값
     assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
 
@@ -350,9 +372,64 @@ def test_report_has_no_forbidden_keys_and_no_conversation_text(env, family):
     assert MARKER not in response.text
 
 
-def test_report_request_does_not_read_practice_turns(env, family):
+def seed_metric_history(env: "Env", child_id: str) -> None:
+    """직전 기간 3세션(한국 11-02·03·04): urgency 놓침 + keep_secret 찾음 / 이번 기간 3세션(11-09·10·11): 둘 다 찾음.
+    시나리오는 모두 다르고 첫 답 kind는 모두 correct(seed_session 기본).
+    → missed_ratio 0.5→0.0, first_seen_accuracy 0.5→1.0, ahead_of_ai_ratio 1.0→1.0
+    """
+    for n, day in enumerate((1, 2, 3)):
+        env.seed_session(
+            child_id,
+            ended_at=datetime(2026, 11, day, 3, 0, tzinfo=timezone.utc) + timedelta(days=1),
+            outcomes={"urgency": "missed", "keep_secret": "found"},
+            scenario_id=f"prev_{n}",
+        )
+    for n, day in enumerate((9, 10, 11)):
+        env.seed_session(
+            child_id,
+            ended_at=datetime(2026, 11, day, 3, 0, tzinfo=timezone.utc),
+            outcomes={"urgency": "found", "keep_secret": "found"},
+            scenario_id=f"cur_{n}",
+        )
+
+
+def test_report_metrics_come_from_growth_metrics_service(env, family):
+    """T-90 — A11 `metrics`를 T-46 계산 결과로 채운다(손계산 기대값은 seed_metric_history docstring)."""
     guardian, child = family
-    env.seed_session(child["child_id"], outcomes={"urgency": "missed"})
+    seed_metric_history(env, child["child_id"])
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    trend_date = ["2026-11-05", "2026-11-12"]
+    expected = {
+        "missed_ratio": (0.0, 0.5),
+        "first_seen_accuracy": (1.0, 0.5),
+        "ahead_of_ai_ratio": (1.0, 1.0),
+    }
+    assert response.json()["metrics"] == [
+        {
+            "metric_id": metric_id,
+            "label": METRIC_LABELS[metric_id],
+            "status": "ok",
+            "level": None,
+            "current": current,
+            "previous": previous,
+            "trend": [{"date": trend_date[0], "value": previous}, {"date": trend_date[1], "value": current}],
+        }
+        for metric_id, (current, previous) in expected.items()
+    ]
+    assert forbidden_keys_found(response.json()) == set()
+    assert MARKER not in response.text
+
+
+def test_report_reads_practice_turns_only_for_first_answer_kind(env, family):
+    """ADR-0016 예외 강제(R2·R4 — 보호자 경로): practice_turns는 첫 답(turn_index 0) 조회에만 쓰고 ai_line은 SELECT하지 않는다.
+
+    (T-90 전 이름 test_report_request_does_not_read_practice_turns — 지표 (다) 연결로 예외 1개가 생겼다.)
+    """
+    guardian, child = family
+    seed_metric_history(env, child["child_id"])
     statements: list[str] = []
 
     def capture(_conn, _cursor, statement, _params, _context, _executemany):
@@ -366,7 +443,11 @@ def test_report_request_does_not_read_practice_turns(env, family):
 
     assert response.status_code == 200, response.text
     assert any("practice_sessions" in statement for statement in statements)
-    assert not any("practice_turns" in statement for statement in statements)
+    assert all("ai_line" not in statement for statement in statements)
+    turn_statements = [statement for statement in statements if "practice_turns" in statement]
+    assert len(turn_statements) == 1
+    assert "turn_index" in turn_statements[0]
+    assert MARKER not in response.text
 
 
 def test_report_response_model_forbids_extra_fields():
@@ -389,6 +470,27 @@ def test_report_response_model_forbids_extra_fields():
 
 
 # ==== 인가 (F-30 ④, N-05) ==========================================================
+
+
+def test_other_guardians_child_404_does_not_leak_metrics(env, family):
+    """T-90 — 지표가 있는 아이라도 다른 보호자에게는 404 본문만(지표 계산·노출 없음)."""
+    _owner, child = family
+    seed_metric_history(env, child["child_id"])
+    intruder = env.new_guardian()
+    statements: list[str] = []
+
+    def capture(_conn, _cursor, statement, _params, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(env.client.app.state.engine, "before_cursor_execute", capture)
+    try:
+        response = env.report(child["child_id"], intruder)
+    finally:
+        event.remove(env.client.app.state.engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 404
+    assert response.json() == {"error": {"code": "CHILD_NOT_FOUND", "message": "child not found"}}
+    assert not any("practice_turns" in statement for statement in statements)
 
 
 def test_other_guardians_child_is_404_same_as_unknown(env, family):
