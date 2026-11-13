@@ -108,3 +108,24 @@ python -m venv .venv
 # 헬스 확인 (dev 서버 기동 중)
 curl -sS -i http://localhost:8080/api/v1/health
 ```
+
+## 시연 예시 데이터 적재 (T-67)
+
+시연 계정에 예시 성장 기록(8세션)과 예시 안전 알림(2건)을 넣는다(`origin=demo_seed`, DECISIONS #132 — 고정 시연 계정이 기본). 명령 원문은 [docs/CodingRules.md "검증된 명령어"](docs/CodingRules.md#검증된-명령어)의 T-67 행이다. Git Bash, 저장소 루트 기준이며 `$URL`은 대상 DB URL(Windows SQLite는 `sqlite:///C:/...` 형식)이다.
+
+```bash
+# 1) 마이그레이션 (대상 DB)
+DATABASE_URL="$URL" .venv/Scripts/alembic.exe upgrade head
+# 2) 시연 계정 비밀번호(8~128자)·아이 PIN(숫자 4자리)을 환경 변수로 설정 — 값은 직접 정해 넣는다
+export DEMO_GUARDIAN_PASSWORD=<비밀번호>
+export DEMO_CHILD_PIN=<PIN>
+# 3) 고정 시연 계정에 적재 (재실행 안전)
+.venv/Scripts/python.exe -m app.demo.seed fixed --database-url "$URL"
+# (선택) 이미 있는 아이에 덧붙이기 — 환경 변수 불필요
+.venv/Scripts/python.exe -m app.demo.seed attach --child-id <child UUID> --database-url "$URL"
+```
+
+- 시연 당일 다시 실행하는 것을 권장한다 — 날짜가 실행 시점 기준 상대값이라 7일 창이 시연일에 맞춰진다. 다시 실행해도 그 아이의 `demo_seed` 행만 새로 바뀌고 중복이 생기지 않는다(`live` 행 유지).
+- 시연 계정이 이미 있으면 비밀번호·PIN을 갱신하지 않는다(환경 변수 값은 새 계정을 만들 때만 쓰인다).
+- 값을 명령줄 앞에 직접 쓰면(`DEMO_GUARDIAN_PASSWORD=... 명령`) 셸 히스토리에 남으니 위처럼 `export`를 권장한다. 환경 변수가 없거나 형식이 틀리면 종료 코드 2로 끝난다. 실제 값은 저장소·문서에 적지 않는다([.env.example](.env.example)은 플레이스홀더만).
+- 제한: 시연 계정에서 "처음 본 상황에서 찾은 신호"는 콘텐츠 시나리오가 2개라 "비교 불가"로 보이고, 시연 아이는 첫 설정이 미완료 상태다(사용자 결정). 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
