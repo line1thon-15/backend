@@ -44,3 +44,19 @@ def require_child_id(request: Request) -> UUID:
             message="child authentication is required",
         )
     return child_id
+
+def require_guardian_role(request: Request) -> UUID:
+    """보호자 전용 API — 아이 세션이면 403 `FORBIDDEN_ROLE`(Architecture "역할 분리"), 그 밖은 require_guardian_id와 같다.
+
+    T-25 보호자 리포트에만 쓴다. 기존 보호자 API(T-06~08)의 401 응답은 바꾸지 않는다(범위 밖 — 보고 Open Question).
+    """
+    session_token = request.cookies.get("sid")
+    if session_token is not None:
+        service: AuthService = request.app.state.auth_service
+        if service.child_id_for_session_token(session_token) is not None:
+            raise AppError(
+                code="FORBIDDEN_ROLE",
+                status_code=403,
+                message="guardian role is required",
+            )
+    return require_guardian_id(request)
