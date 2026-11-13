@@ -3,6 +3,9 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.domain.guardian_report import EndedSession
+from app.domain.weak_cues import CueOutcome
+
 
 class DatabaseProbe(Protocol):
     def ping(self) -> bool: ...
@@ -168,6 +171,7 @@ class PracticeSessionRecord:
     retry_of: UUID | None
     status: str
     turns: tuple[PracticeTurnRecord, ...]
+    normal_outcome: str | None = None  # 정상 상황 종료 세션만 (T-16 결과 level K4·K5)
 
 
 @dataclass(frozen=True)
@@ -185,6 +189,7 @@ class NewPracticeSession:
     ai_role_name: str
     draw_index: int | None
     started_at: datetime
+    retry_of: UUID | None = None  # 다시 도전이면 직전 세션 (T-16, F-13 ③)
 
 
 @dataclass(frozen=True)
@@ -202,6 +207,38 @@ class NewPracticeTurn:
 class NewCueResult:
     cue_id: str
     outcome: str  # found | missed
+
+
+@dataclass(frozen=True)
+class EndedSessionStats:
+    """성장 지표용 종료 세션 집계 (T-46) — practice_sessions·cue_results만, 문장·선택지 없음."""
+
+    session_id: UUID
+    scenario_id: str
+    mode: str
+    is_normal: bool
+    ended_at: datetime  # UTC
+    found: int
+    missed: int
+
+
+@dataclass(frozen=True)
+class FirstAnswerKind:
+    """첫 답(turn_index 0)에서 고른 선택지의 kind — 보호자 경로 practice_turns 예외의 유일한 반환형
+    (ADR-0016 R1, DECISIONS #93). 문자열 내용 필드를 더하지 않는다."""
+
+    session_id: UUID
+    kind: str
+
+
+@dataclass(frozen=True)
+class EndedCueOutcome:
+    """종료 세션의 단서 판정 1건 (T-46 더 연습이 필요한 단서) — cue_results만."""
+
+    cue_id: str
+    outcome: str  # found | missed
+    ended_at: datetime  # UTC — 세션 종료 시각
+    session_id: UUID
 
 
 class PracticeRepository(Protocol):
@@ -226,6 +263,8 @@ class PracticeRepository(Protocol):
         session_id: UUID,
         child_id: UUID,
     ) -> PracticeSessionRecord | None: ...
+
+    def get_cue_results(self, session_id: UUID) -> dict[str, str]: ...
 
     def record_answer_and_continue(
         self,
@@ -256,3 +295,64 @@ class PracticeRepository(Protocol):
         stop_turn: NewPracticeTurn,
         stopped_at: datetime,
     ) -> None: ...
+
+    # ---- 성장 지표 (T-46) — 아이(A19)·보호자(A11) 경로 공통 ----
+
+    def ended_session_stats(
+        self,
+        child_id: UUID,
+        ended_from: datetime,
+        ended_to: datetime,
+    ) -> list[EndedSessionStats]: ...
+
+    def first_session_ids(
+        self,
+        child_id: UUID,
+        scenario_ids: list[str],
+    ) -> dict[str, UUID]: ...
+
+    def first_answer_kinds(
+        self,
+        child_id: UUID,
+        ended_from: datetime,
+        ended_to: datetime,
+    ) -> list[FirstAnswerKind]: ...
+
+    def ended_cue_outcomes(self, child_id: UUID) -> list[EndedCueOutcome]: ...
+
+# ---- 보호자 리포트 (T-25) ---------------------------------------------------------
+# 보호자 경로 — practice_turns를 읽는 메서드를 두지 않는다 (Architecture 엔티티 practice_turns, F-30 ③).
+
+
+@dataclass(frozen=True)
+class ReportChild:
+    child_id: UUID
+    nickname: str
+
+
+@dataclass(frozen=True)
+class GuardianNoticeRecord:
+    """guardian_notices 한 행 — NoticeView 6개 값만(origin은 싣지 않는다)."""
+
+    notice_id: UUID
+    kind: str
+    occurred_at: datetime  # UTC aware
+    level: str | None
+    area: str | None
+    channel: str | None
+
+
+class GuardianReportRepository(Protocol):
+    def get_owned_child(self, guardian_id: UUID, child_id: UUID) -> ReportChild | None:
+        """보호자와 아이 두 조건을 한 쿼리로 — 없거나 남의 아이면 None (Architecture 인가 — 보호자)."""
+        ...
+
+    def ended_sessions(self, child_id: UUID) -> list[EndedSession]: ...
+
+    def ended_cue_outcomes(self, child_id: UUID) -> list[CueOutcome]:
+        """`status = ended` 세션의 단서 판정 목록 — 판정 시각은 그 세션의 종료 시각, session_id 포함(#122 동률)."""
+        ...
+
+    def notices(self, child_id: UUID) -> list[GuardianNoticeRecord]:
+        """그 아이의 알림 — 최신 순(occurred_at 내림차순, 같으면 id 내림차순)."""
+        ...

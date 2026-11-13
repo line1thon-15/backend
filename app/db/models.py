@@ -286,3 +286,41 @@ class CueResult(Base):
     cue_id: Mapped[str] = mapped_column(String(64), nullable=False)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GuardianNotice(Base):
+    """보호자 최소 알림 (Architecture 엔티티 guardian_notices — DECISIONS #23·#92·#95, T-25).
+
+    본문·원문·이미지·감정 열이 없다(F-41 ③). 항목은 발생 시각·위험도·영역만(F-41 ④) — 열 추가 금지(F-41 ⑤).
+    """
+
+    __tablename__ = "guardian_notices"
+    __table_args__ = (
+        CheckConstraint("kind IN ('safety', 'trusted_contact')", name="ck_guardian_notices_kind"),
+        CheckConstraint("level IS NULL OR level IN ('red', 'yellow')", name="ck_guardian_notices_level"),
+        CheckConstraint(
+            "area IS NULL OR area IN ('scam', 'identity_lending', 'friend_pressure')",
+            name="ck_guardian_notices_area",
+        ),
+        CheckConstraint("channel IS NULL OR channel IN ('call', 'sms')", name="ck_guardian_notices_channel"),
+        CheckConstraint("origin IN ('demo_seed', 'live')", name="ck_guardian_notices_origin"),
+        CheckConstraint(
+            "(kind = 'safety' AND level IS NOT NULL AND area IS NOT NULL AND channel IS NULL)"
+            " OR (kind = 'trusted_contact' AND level IS NULL AND area IS NULL AND channel IS NOT NULL)",
+            name="ck_guardian_notices_kind_fields",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    child_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("children.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    level: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    area: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    channel: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

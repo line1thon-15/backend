@@ -1,5 +1,6 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from random import Random
 from uuid import uuid4
@@ -12,29 +13,45 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.auth import router as auth_router
 from app.api.children import router as children_router
 from app.api.health import router as health_router
+from app.api.me import router as me_router
 from app.api.onboarding import router as onboarding_router
 from app.api.practice import router as practice_router
+from app.api.report import router as report_router
 from app.ai_client.factory import build_practice_ai
 from app.ai_client.ports import PracticeAI
+from app.content.loader import AREA_IDS
 from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
 
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.session import make_engine, make_session_factory
+from app.domain.metrics import METRIC_LABELS
+from app.domain.practice_result import CARD_LEVEL_BY_KEY
 from app.repositories.auth import SqlAlchemyAuthRepository
+from app.repositories.badges import SqlAlchemyBadgeRepository
+from app.repositories.child_home import SqlAlchemyTrustedContactRepository
 from app.repositories.children import SqlAlchemyChildrenRepository
 from app.repositories.db_health import SqlAlchemyDatabaseProbe
+from app.repositories.guardian_report import SqlAlchemyGuardianReportRepository
 from app.repositories.onboarding import SqlAlchemyOnboardingRepository
 from app.repositories.practice import SqlAlchemyPracticeRepository
 from app.services.auth import AuthService
+from app.services.badges import BadgeService
+from app.services.child_views import ChildViewsService
 from app.services.children import ChildrenService
+from app.services.growth import GrowthMetricsService
+from app.services.guardian_report import GuardianReportService
 from app.services.health import HealthService
 from app.services.onboarding import OnboardingService
 from app.services.practice import PracticeService
 
 API_PREFIX = "/api/v1"
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def _handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
@@ -123,6 +140,9 @@ def create_app(
     content_dir: Path = DEFAULT_CONTENT_DIR,
     practice_ai: PracticeAI | None = None,
     rng_factory: Callable[[], Random] = Random,
+    card_level_by_key: Mapping[str, str] = CARD_LEVEL_BY_KEY,
+    clock: Callable[[], datetime] = _utcnow,
+    metric_labels: Mapping[str, str] = METRIC_LABELS,
 ) -> FastAPI:
     settings = settings or Settings()
     # 콘텐츠 검증 실패면 ContentValidationError로 시작하지 않는다 (T-87, DECISIONS #111·#118)
@@ -142,6 +162,12 @@ def create_app(
     app.state.children_service = ChildrenService(
         SqlAlchemyChildrenRepository(session_factory)
     )
+    # 보호자 리포트 A11 (T-25) — 단서 이름은 콘텐츠 사본(T-87)
+    app.state.guardian_report_service = GuardianReportService(
+        SqlAlchemyGuardianReportRepository(session_factory),
+        AREA_IDS,
+        {clue_id: clue.name for clue_id, clue in content.clues.items()},
+    )
     app.state.onboarding_service = OnboardingService(
         SqlAlchemyOnboardingRepository(session_factory),
         content.diagnosis,
@@ -160,6 +186,24 @@ def create_app(
         practice_ai,
         content,
         rng_factory=rng_factory,
+        # 결과 카드 키→SignalLevel — PRD OQ 63·24 답 전에는 비어 있다(테스트가 주입) (T-16, #75)
+        card_level_by_key=card_level_by_key,
+    )
+
+    # 아이용 홈 A13·성장 A19 조립 (T-90) — 계산은 T-45 BadgeService·T-46 GrowthMetricsService, 시계 주입
+    # 같은 지표 서비스를 보호자 리포트 A11 `metrics`도 쓴다(2026-11-12 사용자 답 "T-90에서 연결 (추천)")
+    growth_metrics_service = GrowthMetricsService(SqlAlchemyPracticeRepository(session_factory), clock=clock)
+    app.state.growth_metrics_service = growth_metrics_service
+    app.state.metric_labels = metric_labels
+    badge_repository = SqlAlchemyBadgeRepository(session_factory)
+    app.state.child_views_service = ChildViewsService(
+        badge_service=BadgeService(badge_repository, clock=clock),
+        metrics_service=growth_metrics_service,
+        sessions=badge_repository,
+        contacts=SqlAlchemyTrustedContactRepository(session_factory),
+        areas=AREA_IDS,
+        cue_cards={clue_id: (clue.name, clue.description) for clue_id, clue in content.clues.items()},
+        metric_labels=metric_labels,
     )
 
     @app.middleware("http")
@@ -180,6 +224,8 @@ def create_app(
     app.include_router(children_router, prefix=API_PREFIX)
     app.include_router(onboarding_router, prefix=API_PREFIX)
     app.include_router(practice_router, prefix=API_PREFIX)
+    app.include_router(report_router, prefix=API_PREFIX)
+    app.include_router(me_router, prefix=API_PREFIX)
     return app
 
 
