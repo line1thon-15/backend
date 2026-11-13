@@ -39,6 +39,10 @@
 | backend 테스트 (Git Bash, 저장소 루트 — `live_ai` 마커 기본 제외) | `.venv/Scripts/python.exe -m pytest` | 2026-11-08 (T-01, 종료 코드 0, 35 passed) |
 | backend dev 서버 (Claude Code Browser pane `preview_start` name `backend` — `.claude/launch.json`이 실행하는 명령) | `.venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8080` | 2026-11-08 (T-01, 기동 후 헬스 200) |
 | backend dev 서버 헬스 확인 (Git Bash, dev 서버 기동 중) | `curl -sS -i http://localhost:8080/api/v1/health` | 2026-11-08 (T-01, 종료 코드 0, `200 {"status":"ok","db":"ok"}`) |
+| backend 마이그레이션 — 지정 DB (Git Bash, 저장소 루트. `$URL` = 대상 DB URL, 검증은 스크래치 SQLite 파일) | `DATABASE_URL="$URL" .venv/Scripts/alembic.exe upgrade head` | 2026-11-13 (T-67, 종료 코드 0) |
+| ~~시연 예시 데이터 적재 — 고정 시연 계정 (Git Bash, 저장소 루트, 마이그레이션된 DB. 재실행 안전. 계정 값은 `app/demo/data/demo_account.json`)~~ | ~~`.venv/Scripts/python.exe -m app.demo.seed fixed --database-url "$URL"`~~ | ~~2026-11-13 (T-67, 종료 코드 0, 두 번 실행 후 세션 8·알림 2)~~ 교체 사유: 2026-11-13 사용자 답 "환경 변수로 받기 (추천)" — 비밀번호·PIN을 저장소 파일에서 빼고 환경 변수로 받게 바뀌어, 환경 변수 없이 이 명령만 실행하면 종료 코드 2 |
+| 시연 예시 데이터 적재 — 고정 시연 계정 (Git Bash, 저장소 루트, 마이그레이션된 DB. 재실행 안전. 프로필은 `app/demo/data/demo_account.json`, 보호자 비밀번호(8~128자)·아이 PIN(숫자 4자리)은 프로세스 환경 변수 — `.env.example` 플레이스홀더 참고. Windows에서 `$URL`은 `sqlite:///C:/...` 형식(드라이브 문자 포함 슬래시 경로)) | `DEMO_GUARDIAN_PASSWORD=<비밀번호> DEMO_CHILD_PIN=<PIN> .venv/Scripts/python.exe -m app.demo.seed fixed --database-url "$URL"` | 2026-11-13 (T-67, 종료 코드 0. 환경 변수 없이 실행하면 종료 코드 2) |
+| 시연 예시 데이터 적재 — 지정 아이에 덧붙임 (Git Bash, 저장소 루트) | `.venv/Scripts/python.exe -m app.demo.seed attach --child-id <child UUID> --database-url "$URL"` | 2026-11-13 (T-67, 종료 코드 0) |
 
 ### 킷 자체 회귀 검사 (프로젝트 명령 아님)
 
