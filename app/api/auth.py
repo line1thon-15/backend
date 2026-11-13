@@ -1,11 +1,13 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
+from app.core.errors import AppError
 from app.core.security import SESSION_TTL_SECONDS
 from app.services.auth import AuthResult, AuthService, ChildAuthResult
+from app.services.ports import ChildIdentity, GuardianIdentity
 
 router = APIRouter()
 
@@ -51,6 +53,38 @@ class GuardianLoginResponse(BaseModel):
 
 class ChildLoginResponse(BaseModel):
     first_login: bool
+
+
+class DisplaySettingsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    font_scale: Literal["normal", "large", "xlarge"]
+    high_contrast: bool
+    tts_enabled: bool
+
+
+class GuardianMeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["guardian"]
+    guardian_id: UUID
+    email: EmailValue
+
+
+class ChildMeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["child"]
+    nickname: str
+    grade: str
+    onboarding_completed: bool
+    display: DisplaySettingsResponse
+
+
+MeResponse = Annotated[
+    GuardianMeResponse | ChildMeResponse,
+    Field(discriminator="role"),
+]
 
 
 def _set_session_cookie(
@@ -120,3 +154,43 @@ def login_child(
     )
     _set_session_cookie(response, request, result.session_token)
     return ChildLoginResponse(first_login=result.first_login)
+
+
+@router.get("/auth/me", response_model=MeResponse)
+def get_current_user(request: Request) -> MeResponse:
+    service: AuthService = request.app.state.auth_service
+    identity = service.current_identity_for_session_token(
+        request.cookies.get("sid")
+    )
+    if identity is None:
+        raise AppError(
+            code="UNAUTHENTICATED",
+            status_code=401,
+            message="authentication is required",
+        )
+
+    if isinstance(identity, GuardianIdentity):
+        return GuardianMeResponse(
+            role="guardian",
+            guardian_id=identity.guardian_id,
+            email=identity.email,
+        )
+
+    if isinstance(identity, ChildIdentity):
+        return ChildMeResponse(
+            role="child",
+            nickname=identity.nickname,
+            grade=identity.grade,
+            onboarding_completed=identity.onboarding_completed,
+            display=DisplaySettingsResponse(
+                font_scale=identity.font_scale,
+                high_contrast=identity.high_contrast,
+                tts_enabled=identity.tts_enabled,
+            ),
+        )
+
+    raise AppError(
+        code="UNAUTHENTICATED",
+        status_code=401,
+        message="authentication is required",
+    )

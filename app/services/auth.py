@@ -10,7 +10,7 @@ from app.core.security import (
     hash_session_token,
     verify_password,
 )
-from app.services.ports import AuthRepository
+from app.services.ports import AuthRepository, CurrentIdentity
 
 
 @dataclass(frozen=True)
@@ -119,6 +119,17 @@ class AuthService:
 
     def child_id_for_session_token(self, session_token: str) -> UUID | None:
         return self._repository.find_child_id_for_active_session(
+            hash_session_token(session_token),
+            datetime.now(timezone.utc),
+        )
+
+    def current_identity_for_session_token(
+        self,
+        session_token: str | None,
+    ) -> CurrentIdentity | None:
+        if session_token is None:
+            return None
+        return self._repository.find_current_user_for_active_session(
             hash_session_token(session_token),
             datetime.now(timezone.utc),
         )
