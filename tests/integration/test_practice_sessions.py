@@ -1559,3 +1559,69 @@ def test_cue_results_reject_duplicate_session_cue(env):
                     recorded_at=datetime.now(timezone.utc),
                 )
             )
+
+
+# ==== 역할 분리 — 보호자 세션으로 아이 연습 API (T-92, Architecture 역할 분리·오류 응답 규격) ============
+# 백엔드 A 확정: 유효한 보호자 세션 → 403 FORBIDDEN_ROLE, 세션 없음·무효 → 401 UNAUTHENTICATED 유지.
+
+ROLE_CALLS = {
+    "A15": lambda env, sid: env.client.post("/api/v1/practice/sessions", json={"mode": "area", "area": "scam"}),
+    "A15-retry": lambda env, sid: env.client.post(
+        "/api/v1/practice/sessions", json={"mode": "retry", "retry_of": sid}
+    ),
+    "A16": lambda env, sid: env.client.get(f"/api/v1/practice/sessions/{sid}"),
+    "A17": lambda env, sid: env.client.post(
+        f"/api/v1/practice/sessions/{sid}/turns", json={"choice_id": "c1", "turn_index": 0}
+    ),
+    "A18": lambda env, sid: env.client.get(f"/api/v1/practice/sessions/{sid}/result"),
+}
+
+
+def _db_counts(env: Env) -> tuple[int, int, int]:
+    return env.count(PracticeSession), env.count(PracticeTurn), env.count(CueResult)
+
+
+def _login_new_guardian(env: Env) -> None:
+    env.client.cookies.clear()
+    response = env.client.post(
+        "/api/v1/guardians",
+        json={"email": f"role-guardian-{uuid4().hex[:8]}@example.com", "password": "correct-horse-42"},
+    )
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.parametrize("call", list(ROLE_CALLS))
+def test_guardian_session_on_practice_api_is_403_forbidden_role(env, call):
+    env.login_child()
+    session_id = env.started()["session_id"]
+    before = _db_counts(env)
+    env.ai.calls.clear()
+    _login_new_guardian(env)
+
+    response = ROLE_CALLS[call](env, session_id)
+
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
+    assert env.ai.calls == []
+    assert _db_counts(env) == before
+
+
+@pytest.mark.parametrize("call", list(ROLE_CALLS))
+def test_no_session_on_practice_api_is_401(env, call):
+    env.client.cookies.clear()
+
+    response = ROLE_CALLS[call](env, str(uuid4()))
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.parametrize("call", list(ROLE_CALLS))
+def test_unknown_session_token_on_practice_api_is_401(env, call):
+    env.client.cookies.clear()
+    env.client.cookies.set("sid", "not-a-real-session")
+
+    response = ROLE_CALLS[call](env, str(uuid4()))
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"

@@ -65,7 +65,8 @@ def require_guardian_role(request: Request) -> UUID:
 def require_child_role(request: Request) -> UUID:
     """아이 전용 API — 보호자 세션이면 403 `FORBIDDEN_ROLE`(Architecture "역할 분리"), 그 밖은 require_child_id와 같다.
 
-    T-90 A13·A19에만 쓴다. 기존 아이 API(A12·A15~A18)의 401 응답은 바꾸지 않는다(범위 밖 — 보고 Open Question).
+    유효한 보호자 세션만 403이고, 세션이 없거나 무효·만료면 require_child_id가 401을 낸다(DECISIONS #131).
+    A13·A19·A15~A18이 쓴다. A12(온보딩)는 백엔드 A 담당이라 아직 require_child_id다.
     """
     session_token = request.cookies.get("sid")
     if session_token is not None:

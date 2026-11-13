@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.dependencies import require_child_id
+from app.api.dependencies import require_child_role
 from app.services.practice import PracticeService, ResultOutput, SessionOutput
 
 router = APIRouter()
@@ -150,7 +150,7 @@ def _service(request: Request) -> PracticeService:
 def start_practice_session(
     payload: StartSessionRequest,
     request: Request,
-    child_id: UUID = Depends(require_child_id),
+    child_id: UUID = Depends(require_child_role),
 ) -> PracticeSessionView:
     service = _service(request)
     if isinstance(payload, StartRetrySessionRequest):
@@ -162,7 +162,7 @@ def start_practice_session(
 def get_practice_session(
     session_id: UUID,
     request: Request,
-    child_id: UUID = Depends(require_child_id),
+    child_id: UUID = Depends(require_child_role),
 ) -> PracticeSessionView:
     return _view(_service(request).get_session(child_id=child_id, session_id=session_id))
 
@@ -172,7 +172,7 @@ def answer_practice_turn(
     session_id: UUID,
     payload: AnswerRequest,
     request: Request,
-    child_id: UUID = Depends(require_child_id),
+    child_id: UUID = Depends(require_child_role),
 ) -> PracticeSessionView:
     return _view(
         _service(request).answer(
@@ -188,6 +188,6 @@ def answer_practice_turn(
 def get_practice_result(
     session_id: UUID,
     request: Request,
-    child_id: UUID = Depends(require_child_id),
+    child_id: UUID = Depends(require_child_role),
 ) -> PracticeResultView:
     return _result_view(_service(request).get_result(child_id=child_id, session_id=session_id))
