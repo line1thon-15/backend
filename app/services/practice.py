@@ -159,6 +159,15 @@ class PracticeService:
     # ---- A15 ------------------------------------------------------------------
 
     def start_area_session(self, *, child_id: UUID, area: str) -> SessionOutput:
+        return self._start_new_draw(child_id=child_id, mode="area", area=area)
+
+    def start_mission_session(self, *, child_id: UUID) -> SessionOutput:
+        """오늘의 미션 (F-10, T-49): 영역 미지정 새 출제 — 출제 규칙은 영역 선택과 같다(Architecture
+        "오늘의 미션 (F-10)" 임시 구조). 구성 규칙(PRD OQ 13 중 미션)은 보류라 여기서 정하지 않는다."""
+        return self._start_new_draw(child_id=child_id, mode="mission", area=None)
+
+    def _start_new_draw(self, *, child_id: UUID, mode: str, area: str | None) -> SessionOutput:
+        """새 출제(area·mission). `area`가 None이면 모든 영역 시나리오가 후보다."""
         profile = self._child_profile(child_id)
 
         candidates = [
@@ -171,7 +180,7 @@ class PracticeService:
                 cue_ids=tuple(clue.id for clue in entry.scenario.clues),
             )
             for scenario_id, entry in self._content.scenarios.items()
-            if entry.area == area
+            if area is None or entry.area == area
         ]
         previous_pairs = self._repository.latest_variant_axes(
             child_id, [candidate.scenario_id for candidate in candidates]
@@ -194,8 +203,8 @@ class PracticeService:
         entry = self._content.scenarios[draw.scenario_id]
         return self._begin_session(
             child_id=child_id,
-            mode="area",
-            area=area,
+            mode=mode,
+            area=entry.area,
             scenario_id=draw.scenario_id,
             clue_ids=tuple(clue.id for clue in entry.scenario.clues),
             axes=draw.axes,
