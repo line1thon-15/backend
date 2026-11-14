@@ -58,6 +58,8 @@ bash scripts/init.sh "프로젝트명"
 - 영역별 진행·약점 단서·`metrics`·알림 목록을 준다(원문 비공개). 성장 지표·배지·연속 기록은 T-45·T-46 계산 계층을 쓴다.
 - `summary`는 조회 시마다 AI 요약을 호출해 채운다(저장·캐시 없음). 이번 기간에 종료 세션이 있는 영역마다 `/internal/v1/summary`를 병렬로 호출한다. 종료 세션 기록이 없으면 `insufficient`(AI 미호출), 전체 상한 `SUMMARY_DEADLINE_SECONDS`=25초 초과나 AI·검증(S1~S3) 실패가 하나라도 있으면 `unavailable`(리포트는 200, 부분 결과 없음), 그 외 `ok`다(ADR-0020). 상한을 넘어도 이미 보낸 AI 호출은 AI 클라이언트 시간 초과까지 백그라운드에서 끝난다. 기록 부족 기준(종료 세션 1개)은 Architecture A-18 가정값이다(PRD OQ 58 미결).
 
+**믿는 사람 연락 기록 A14 (T-40) — PR #32, dev 미병합** — 위 "현재 상태"의 `dev` 15490a5에는 포함되지 않는다. 브랜치 `claude/feat-t-40-trusted-contact` 커밋 774a9ab에만 있고 PR #32(base dev, 열림, 미병합)로 올라가 있다. 병합되면 아이 세션의 `POST /me/trusted-contact-events`(`{channel:"call"|"sms"}` → `{ok:true}`)가 `guardian_notices`에 `trusted_contact` 알림을 남기고 A11 `notices`에 보인다. 연락처 이름·번호·원문은 저장·노출하지 않고, 외부 전달은 PRD OQ 9 보류다. QA 989 passed(`.artifacts/verification/T-40/qa-20261115-1/`, 인용 — 이번 정리에서 다시 실행하지 않음). 한계: A14 호출 횟수 제한 없음(연타 시 알림 증가, 사용자 판단 대기), PostgreSQL `guardian_notices` CHECK 제약 동작 미검증(SQLite에서만 실행). 상세는 [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
 **AI 연결** — `AI_CLIENT=http`이면 `HttpPracticeAI`가 AI 서버를 호출한다(T-94). 방법·확인 범위·한계는 아래 "실제 AI 서버 연결".
 
 **콘텐츠** — T-87: `create_app()`이 시작 시 콘텐츠를 검증하며 잘못되면 서버가 뜨지 않는다. 사본은 `app/content/data/ai/`(출처·고정 커밋·해시: `SOURCE.txt`), 보충 파일 `scenario_meta.json`·`platform_app_types.json`·`diagnosis.json`·`safety_stop.json`은 `app/content/data/`에 있다. 보충 파일은 **예시 데이터**이고 `safety_stop.json` 문구는 OQ 66 답을 받은 뒤 교체한다.
