@@ -1,6 +1,6 @@
 ﻿# Architecture — 서비스명 미정 (프로젝트: 2026_line1thon)
 
-> 소유자: architect | 상태: 승인 (2026-11-08 사용자 승인 — 원문 "승인했어", 기입 지시 원문 "대신 기입해", 메인 세션이 사용자 지시로 기입) | 최종 수정: 2026-11-15 (보호자 학습 요약 영역별 병렬 호출 + 요약 전체 상한 25초 — DECISIONS #134·ADR-0020 제안, 사용자 확인 대상, "변경 기록" 2026-11-15 행) / 2026-11-14 (VA4 fallback 예외 — fallback이 직전과 같으면 다른 조합 1회 재요청 후 원본 진행, 사용자 결정, DECISIONS #133·ADR-0019, "변경 기록" 2026-11-14 행) / 2026-11-13 (A-1 해소 — 시연은 고정 시연 계정, 사용자 확정, DECISIONS #132) / 2026-11-12 (A17 요청 `{choice_id, turn_index}` 필수·처리 순서 — DECISIONS #129·#130, "변경 기록" 2026-11-12 다섯째 행) / 2026-11-12 (A17 동시 답 충돌 `TURN_ALREADY_ANSWERED` — DECISIONS #128, "변경 기록" 2026-11-12 넷째 행) / 2026-11-12 (`kind` 금지 범위 좁힘·`guardian_notices` 담당 T-25·약점 단서 동점 정렬 확정 — DECISIONS #125~#127, "변경 기록" 2026-11-12 셋째 행) / 2026-11-12 (약점 단서 공통 규칙·요약 T-76 전 `insufficient`·A13/A19 담당 T-90 — DECISIONS #122~#124, "변경 기록" 2026-11-12 둘째 행) / 2026-11-12 (Y5 카드 색 PRD OQ 63 ①·노랑 문구 OQ 24 사용자 확정 — DECISIONS #120·#121, "변경 기록" 2026-11-12 행) / 2026-11-11 (바뀐 부분은 "변경 기록" 2026-11-11 세 행. 둘째 행: AI 저장소 계약 채택. 셋째 행: 그 세부와 `not_shown`·정상 상황·콘텐츠·Area·safe_reply·요약 단위 사용자 확정 — DECISIONS #109~#116. 넷째 행: ★·PRD OQ 64·해석 4~7 사용자 확정 — DECISIONS #117~#119)
+> 소유자: architect | 상태: 승인 (2026-11-08 사용자 승인 — 원문 "승인했어", 기입 지시 원문 "대신 기입해", 메인 세션이 사용자 지시로 기입) | 최종 수정: 2026-11-15 (배포 토폴로지 — AI 서버를 백엔드 Render 인스턴스 안에서 별도 프로세스로 함께 실행, DECISIONS #135·#136·ADR-0021 제안, 방향은 사용자 답 "그렇게 진행"·세부는 사용자 확인 대상, "변경 기록" 2026-11-15 둘째 행) / 2026-11-15 (보호자 학습 요약 영역별 병렬 호출 + 요약 전체 상한 25초 — DECISIONS #134·ADR-0020 제안, 사용자 확인 대상, "변경 기록" 2026-11-15 행) / 2026-11-14 (VA4 fallback 예외 — fallback이 직전과 같으면 다른 조합 1회 재요청 후 원본 진행, 사용자 결정, DECISIONS #133·ADR-0019, "변경 기록" 2026-11-14 행) / 2026-11-13 (A-1 해소 — 시연은 고정 시연 계정, 사용자 확정, DECISIONS #132) / 2026-11-12 (A17 요청 `{choice_id, turn_index}` 필수·처리 순서 — DECISIONS #129·#130, "변경 기록" 2026-11-12 다섯째 행) / 2026-11-12 (A17 동시 답 충돌 `TURN_ALREADY_ANSWERED` — DECISIONS #128, "변경 기록" 2026-11-12 넷째 행) / 2026-11-12 (`kind` 금지 범위 좁힘·`guardian_notices` 담당 T-25·약점 단서 동점 정렬 확정 — DECISIONS #125~#127, "변경 기록" 2026-11-12 셋째 행) / 2026-11-12 (약점 단서 공통 규칙·요약 T-76 전 `insufficient`·A13/A19 담당 T-90 — DECISIONS #122~#124, "변경 기록" 2026-11-12 둘째 행) / 2026-11-12 (Y5 카드 색 PRD OQ 63 ①·노랑 문구 OQ 24 사용자 확정 — DECISIONS #120·#121, "변경 기록" 2026-11-12 행) / 2026-11-11 (바뀐 부분은 "변경 기록" 2026-11-11 세 행. 둘째 행: AI 저장소 계약 채택. 셋째 행: 그 세부와 `not_shown`·정상 상황·콘텐츠·Area·safe_reply·요약 단위 사용자 확정 — DECISIONS #109~#116. 넷째 행: ★·PRD OQ 64·해석 4~7 사용자 확정 — DECISIONS #117~#119)
 > 상태는 초안/승인 두 가지. "승인"으로 바꾸는 것은 사용자만 한다 — 승인 전 구현 착수 금지 (AGENTS.md 파이프라인 규칙).
 > 입력 근거: docs/PRD.md(상태 "승인" — 2026-11-06 사용자 원문 "승인하고 설계"), docs/Tasks.md(최종 수정 2026-11-06), 메인 세션의 실행환경 확인(2026-11-06, 아래 표에 원문), 2026-11-06 사용자 답변·팀 GitHub 조직 line1thon-15 실제 구성(메인 세션 gh CLI 확인 — 아래 "변경 기록").
 > 표기: **[가정]** = 팀 확인 전 가정 / **[사용자 확인 필요]** = 계정·비용·외부 서비스 선택 / **[OQ n]** = PRD Open Question n이 정해져야 확정되는 부분 / **[A-n]** = 이 문서 끝 "설계가 올린 질문" / **[팀 요청 F-n·AI-n]** = "팀원 요청 사항" 표 / **[정본: docs 저장소]** = 팀 GitHub docs 저장소에 게시해야 하는 공유 규격 / (인용) = architect가 이번 세션에 직접 재확인하지 않은 값.
@@ -35,6 +35,7 @@
 | 2026-11-12 (A17 요청에 `turn_index` 필수 — 사용자 확정) | 사용자 결정 (2) 질문 원문 "더블탭의 두 번째 요청이 첫 요청 처리가 끝난 뒤에 도착하면, 충돌이 아니라 '현재 턴에 없는 선택지'로 보여 422 INVALID_CHOICE(잘못된 요청)가 나가요. 이것도 TURN_ALREADY_ANSWERED로 통일할까요?" → "통일 (추천)". implementer 전제 반박 원문 발췌 "선택지 ID는 모든 턴에서 `c1`·`c2`·`c3`입니다 … 계속 답 뒤에 같은 ID를 다시 보내면 **200이 나가고 turn 1의 답으로 조용히 저장됩니다.** 422가 아닙니다 …". 사용자 결정 (3) 질문 원문 "T-91 구현 중 실제 버그가 확인됐어요. …" → "요청에 턴 번호 필수 (추천)"(전문 DECISIONS #129·#130) | API 규격(A17 요청 DTO·처리 순서·오류 목록), 오류 응답 규격(`TURN_ALREADY_ANSWERED` 의미), 화면 메커니즘(Y4 행), DECISIONS #129·#130. 응답 DTO 변경 없음(`TurnView.turn_index` 기존 필드). 머리글 상태 "승인"은 그대로 |
 | 2026-11-14 (VA4 fallback 예외 — 다른 변형 1회 재요청, 사용자 결정) | 팀원 리뷰 원문(PR #25, 사용자 전달): "AI 서버에서 모델 생성에 실패하면 `source="fallback"`으로 원본 시나리오를 반환합니다. 이 상태에서 같은 시나리오를 다시 도전하면 이전과 동일한 플랫폼·말투가 반환되어 백엔드의 `VA4` 검증에 걸리고, `503 AI_UNAVAILABLE`이 발생할 수 있습니다." / 메인 세션 재현 `.artifacts/verification/T-94/main-20261114-live-ai-retry/`(인용) / 사용자 답 "백엔드가 다른 변형 요청 (추천)"(질문·설명 원문 전문은 DECISIONS #133·ADR-0019 맥락). PRD F-12 [2026-11-14 예외]·Tasks T-95(인용 — planner 반영분) | 백엔드–AI 내부 API(`variant` 행 VA4, 충돌 정리 표 다시 도전 행), 설계 리스크(D-13 ②), 주요 결정(ADR-0019 신규), DECISIONS #133(#102에 부분 대체 표시). 응답 DTO·오류 코드 변경 없음. 머리글 상태 "승인"은 그대로 |
 | 2026-11-15 (보호자 학습 요약 영역별 병렬 호출 + 전체 상한 — 사용자 확인 대상, T-98) | 팀원 리뷰 원문(PR #29, 사용자 전달): "`app/services/guardian_report.py`에서 영역별 AI 요약을 순차적으로 호출하고 있어, 여러 영역의 응답이 지연되면 보호자 리포트 전체 응답 시간도 길어질 수 있습니다. 기본 AI 호출 타임아웃이 30초이므로, 3개 영역의 응답이 모두 느린 경우 요약 생성에만 최대 약 90초가 소요될 가능성이 있습니다. 단, 중간에 호출이 실패하면 남은 영역은 호출하지 않습니다." 권고 원문 "리포트 전체 AI 요약 생성 시간 제한 검토 / 영역별 AI 호출 병렬 처리 가능 여부 확인 / 응답 지연·타임아웃 회귀 테스트 추가 / 실제 Gemini 제공자를 통한 요약 API 연동 검증" / 사용자 답 원문 "병합+후속 등록"·"설계 요청"(2026-11-15, 메인 세션 전달) / 메인 세션 실측(인용) 영역 1개 16.6초 `.artifacts/verification/T-76/main-20261115-live-gemini-summary-2/`. 코드 근거는 T-76 작업 사본(`.claude/worktrees/feat-t-76-guardian-summary-2d2909/` — origin/dev f8585c5와 일치 미검증) | 백엔드–AI 내부 API(요약 실패 처리 행), 설계 리스크(D-8·D-13 ③), 주요 결정(ADR-0020 신규 — 제안), DECISIONS #134(#103에 부분 대체 표시). 응답 DTO·오류 코드·환경 변수 변경 없음. 머리글 상태 "승인"은 그대로 |
+| 2026-11-15 (배포 토폴로지 — AI를 백엔드 Render 인스턴스에 함께 실행, 방향 사용자 결정·세부 사용자 확인 대상) | AI 담당 원문(사용자 전달): "render 가 오류가 잘나고 제가 또 배포하면 배포 위에 배포가 씌워져서" / "깃허브에 있는 코드 그대로 백엔드 서버에서 python -m app으로 띄우시고 http://localhost:8081로 호출 하면 될 것 같아요" / "이번엔 docs같은 파일 안써서 fastapi로는 안바꾸고" / 사용자 답 원문 "그렇게 진행"(2026-11-15 — 메인 세션 제안 "답장 → ADR·시작 스크립트 → Render 설정 → 배포 확인"에 대한 답, 메인 세션 전달). 메인 세션 확인 사실(인용): AI 저장소 PUBLIC, `main`은 시작 커밋뿐·코드는 `dev`(e82ea66), AI 의존성 `pydantic>=2`·`pytest>=8`·`google-genai>=1.0`, AI 환경 변수 `AI_INTERNAL_TOKEN`·`AI_PROVIDER`·`AI_PORT`·`AI_HOST`·`GEMINI_API_KEY`·`GEMINI_MODEL`(`gemini-3.8-flash` 동작 확인), 로컬 동시 실행 확인 `.artifacts/verification/T-95/main-20261115-live-gemini-3/`·`.artifacts/verification/T-76/main-20261115-live-gemini-summary-2/`, 백엔드 저장소에 `render.yaml`·`Procfile` 없음 | 기술 스택(배포 행), 백엔드–AI 내부 API(1차 v1 환경 변수 행), 보안·개인정보(백엔드–AI 서비스 인증 행), 시크릿과 환경 변수(백엔드 배포 변수·AI 변수 — 같은 인스턴스), 배포(머리·호스팅·빌드·릴리스·환경별 설정·롤백·헬스체크 행), 관측성(로깅 행), 설계가 올린 질문(A-2 메모), 설계 리스크(D-3 갱신, D-15 신규), 주요 결정(ADR-0007 상태 칸, ADR-0021 신규), DECISIONS #135·#136. 내부 API 규격·응답 DTO·오류 코드·백엔드 코드 변경 없음. 머리글 상태 "승인"은 그대로 |
 
 ## 설계 범위
 
@@ -94,7 +95,7 @@
 | 단위·통합 테스트 (backend) | pytest + FastAPI `TestClient` + httpx `MockTransport` | 결정 (설치 허용됨) | ADR-0006 갱신 메모, DECISIONS #48 |
 | 프론트 테스트·E2E | Vitest + React Testing Library / Playwright Test | 권고 — 프론트 담당 결정 [A-11] | N-06 "러너는 설계에서 확정" — 러너 종류는 Playwright로 정하되 구축은 frontend 저장소 |
 | 패키지 관리 (backend) | `requirements.txt`·`requirements-dev.txt` (pip 또는 uv) | 결정 | DECISIONS #7 |
-| 배포 | 프론트 Vercel / 백엔드·AI 각각 Python PaaS 웹 서비스(후보 Render) / 관리형 Postgres(후보 Neon·Supabase) | 형태 확정(N-07), 구체 서비스 [사용자 확인 필요 — A-2 보류, 추천안으로 진행] | ADR-0007(갱신 메모) |
+| 배포 | ~~프론트 Vercel / 백엔드·AI 각각 Python PaaS 웹 서비스(후보 Render) / 관리형 Postgres(후보 Neon·Supabase)~~ **2026-11-15**: 프론트 Vercel / **백엔드 Render 웹 서비스 1개 — AI 서버는 같은 인스턴스 안의 별도 프로세스**(`python -m app`, 127.0.0.1:8081, 감시 루프) / 관리형 Postgres(후보 Neon·Supabase) | 형태 확정(N-07). AI 동시 실행은 방향 사용자 결정("그렇게 진행"), 세부 사용자 확인 대상 | ADR-0007(갱신 메모), ADR-0021(제안 — ADR-0007의 AI 배포 단위 부분 대체), DECISIONS #135·#136 |
 | CI (backend) | GitHub Actions — `dev`·`main` 대상 PR에서 pytest | 결정 | DECISIONS #42 |
 
 backend 저장소 설치 대상 (허용 범위 안): 런타임 `fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `psycopg[binary]`, `pydantic-settings`, `argon2-cffi`, `httpx`, `email-validator`(Pydantic `EmailStr`) / 개발 `pytest`. 이유는 위 표. 버전 고정은 T-01에서 실제 설치된 버전으로 `requirements*.txt`에 기록한다.
@@ -364,7 +365,7 @@ implementer는 여기 정의된 규격만 사용한다. 값이 [OQ n]인 부분�
 | `POST /internal/v1/practice/feedback` | `{scenario_id, results(시나리오 단서 순서 — 저장된 found·missed + 나머지 not_shown), messages, variant}` → `{cards:[{clue_id, result:"found"\|"missed", text}], closing_line, source:"model"\|"fallback"\|"mixed"\|"fixed"}`. 공개 `PracticeResultView.cards[]` 대응(#101): 응답 카드 순서대로 `{level: K1(found)\|K2(missed), sentence: text}` + 마지막에 `closing_line`을 `{level: K3, sentence}` 1장. 검증 V1' 카드 `clue_id` 집합 = 저장된 found∪missed, 단서마다 1장 / V2' `text`·`closing_line` 공백만이 아님 / V3' 카드 `result` = 저장된 판정. `source` 제한 없음. `CueCard` = 콘텐츠(`label` = `clues.json name`, `sentence` = `description`), AI 문장 미사용. 실패 → A18 전체 503(#75 ⑤ 그대로) | `PracticeAI.feedback` |
 | `POST /internal/v1/summary` | `{area: 영역 표시 이름(콘텐츠 `areas[].name`), practice_count:int≥0, found_clues:[단서 name], missed_clues:[단서 name], growth_level: null}` → `{summary: str\|null}`. 호출: 이번 기간(#88 창)에 종료 세션이 있는 영역마다 1회(최대 3). 공개 `GuardianSummaryView` 형태 그대로 — `unit = "area"`, `items` = `[{area, sentences:[summary]}]`. 검증 S1 `summary`가 null이 아니고 공백만이 아님 / S2 숫자는 입력 값에 있는 것만(#53) / S3 길이 상한(설정 상수). 하나라도 실패 → `status = "unavailable"`·`items` [](#69 실패 처리). **`growth_level`은 항상 null**(F-29 ③·A-15 — AI 담당 합의 G1) | `SummaryAI.summary` |
 | AI 오류 | 본문 `{"error":"<code>"}`(문자열): 401 `unauthorized`, 422 `invalid_request`(+`fields` — 필드명만)·`invalid_variant`, 404 `scenario_not_found`, 413 `payload_too_large`, 400 `invalid_json`·`bad_request`, 500 `internal_error`. 백엔드는 비2xx면 본문을 해석하지 않고 503. Gemini 실패·한도 초과는 AI가 오류 대신 고정 문장으로 대체(`source = "fallback"`) — 백엔드는 정상 응답으로 받는다 | app/ai_client |
-| 환경 변수 | 백엔드 `AI_SERVICE_TOKEN` 값 = AI `AI_INTERNAL_TOKEN` 값(이름만 다름), AI 포트 8081(AI `.env.example` `AI_PORT=8081`, 인용). 로컬 연결 테스트는 AI `AI_PROVIDER=fake`(AI 추가 전달 원문 "키가 없어도 .env에서 AI_PROVIDER=fake로 하면 고정 응답으로 돌아가서 연결 테스트는 바로 하실 수 있어요.") | 배포·로컬 |
+| 환경 변수 | 백엔드 `AI_SERVICE_TOKEN` 값 = AI `AI_INTERNAL_TOKEN` 값(이름만 다름), AI 포트 8081(AI `.env.example` `AI_PORT=8081`, 인용). 로컬 연결 테스트는 AI `AI_PROVIDER=fake`(AI 추가 전달 원문 "키가 없어도 .env에서 AI_PROVIDER=fake로 하면 고정 응답으로 돌아가서 연결 테스트는 바로 하실 수 있어요."). **2026-11-15 운영(DECISIONS #135·#136, ADR-0021 제안)**: AI는 백엔드 Render 인스턴스 안에서 실행 — 백엔드 `AI_SERVICE_URL=http://127.0.0.1:8081`, AI `AI_HOST=127.0.0.1`(시작 스크립트가 강제)·`AI_PORT=8081`, `AI_INTERNAL_TOKEN`은 비우면 시작 스크립트가 `AI_SERVICE_TOKEN` 값을 쓴다(한 곳에서만 설정). 전체 목록은 "시크릿과 환경 변수" | 배포·로컬 |
 | 계약 샘플 | `tests/contracts/ai/` = ai 저장소 `contracts/*.json`(12개 — variant·start·turn·judge·feedback·summary 요청·응답)을 커밋 고정으로 복사. `live_ai` 계약 테스트는 같은 요청으로 실행 중인 AI 서비스(`AI_PROVIDER=fake`)를 호출해 위 검증을 통과하는지 확인 | tests |
 
 #### 기존 결정과의 충돌 정리 (2026-11-11)
@@ -559,7 +560,7 @@ frontend 저장소는 프론트 담당 소유다(ADR-0012). 아래 경로·가�
 | 세션 토큰 | `secrets.token_urlsafe(32)`, DB에는 SHA-256 해시만. 만료: 보호자·아이 모두 7일(설정 상수). PIN 재설정·코드 재발급 시 그 아이의 세션 전부 폐기 |
 | CORS | 켜지 않는다. 프론트는 같은 출처 프록시로만 호출(ADR-0013) — 교차 출처 호출이 실패하는 것은 의도된 동작 |
 | CSRF | 같은 출처 + `SameSite=Lax` + 상태 변경 요청은 `Content-Type: application/json`만 허용 |
-| 백엔드–AI 서비스 인증 | `X-Internal-Token` 공유 시크릿(`AI_SERVICE_TOKEN`). AI 서비스 URL은 공개 PaaS 주소이므로 토큰 없는 요청은 401. 토큰은 양쪽 환경 변수에만 |
+| 백엔드–AI 서비스 인증 | `X-Internal-Token` 공유 시크릿(`AI_SERVICE_TOKEN`). ~~AI 서비스 URL은 공개 PaaS 주소이므로 토큰 없는 요청은 401.~~ **2026-11-15(ADR-0021 제안)**: AI는 백엔드 인스턴스 안에서 127.0.0.1에만 바인딩해 공개 주소가 없다 — 토큰 검사는 그대로 유지(같은 인스턴스의 다른 프로세스·설정 실수로 0.0.0.0에 열리는 경우에 대한 방어). 토큰 없는 요청은 401. 토큰은 환경 변수에만 |
 | AI로 가는 데이터 | `ScenarioSpec`에 아이 식별 필드 없음(규격으로 차단). 연습 대화(Y4)의 아이 입력은 선택지 ID뿐(자유 입력 F-38은 2차). **2026-11-07 PRD OQ 55 해소 후(사용자 확인 대상)**: 1차에는 아이가 직접 쓴 글이 AI 서비스·Gemini로 가는 경로가 없다 — 심화 연습 AI 피드백은 2차이고, 1차 Y5-2·Y5-3 답변은 우리 서버로도 보내지 않는다(PRD OQ 59 기본안, DECISIONS #72). **[2차 — T-82]** 심화 연습(F-48)의 `answer_text`는 아이가 직접 쓴(또는 말을 바꾼) 글이 AI 서비스와 Gemini로 가는 첫 경로가 된다 — 피해 고백·개인정보가 섞일 수 있음(PRD R-8). 대응: AI 서비스 입력 필터가 개인정보 형식이면 LLM 호출 없이 대체 안내, 아이 ID·별명은 함께 보내지 않음, 무료 Gemini 키면 입력이 개선·인적 검토에 쓰일 수 있음(A-13, PRD OQ 46) |
 | 보호자 비공개 범위 | 위 "보호자용 응답 금지 필드" + guardian_notices에 본문 열 없음 + 감정 값 저장·전송 경로 없음 |
 | 로그 | 요청 본문·쿠키·비밀번호·PIN·연결 코드·이메일·내부 토큰·**아이 자유 답변(`answer_text`)과 심화 연습 피드백 문장**(2026-11-07 추가)을 로그에 남기지 않는다. 422 오류의 `details`에도 값은 넣지 않는다. 식별은 내부 UUID만 |
@@ -585,6 +586,25 @@ backend 저장소:
 | `LOG_LEVEL` | 아니오 | 운영 `INFO` |
 
 ai 저장소(권고 — [팀 요청 AI-2]): `GEMINI_API_KEY`(시크릿 — AI 서비스에만), `GEMINI_MODEL`, `AI_PROVIDER=gemini|fake`, `AI_SERVICE_TOKEN`(시크릿), `PROVIDER_TIMEOUT_SECONDS`(백엔드 `AI_SERVICE_TIMEOUT_SECONDS`보다 짧게).
+
+**운영 — 백엔드 Render 웹 서비스 한 곳의 환경 변수 (2026-11-15, DECISIONS #135·#136, ADR-0021 제안)**: AI가 같은 인스턴스에서 돌므로 백엔드·AI 변수를 같은 서비스 대시보드에 둔다. 두 프로세스가 같은 환경을 보므로 이름이 겹치지 않는지 확인했다(AI 변수 이름은 메인 세션 확인값 인용 — `PORT`는 백엔드만, AI는 `AI_PORT`). 시크릿 값은 사용자가 대시보드에 직접 넣고 문서·대화·로그에 적지 않는다. 새 변수(`AI_REPO_REF`·`AI_REPO_URL`·`AI_PORT`·`AI_PROVIDER`·`GEMINI_API_KEY`·`GEMINI_MODEL`)는 implementer가 `.env.example`에 플레이스홀더로 추가한다.
+
+| 변수 | 읽는 쪽 | 시크릿 | 운영 값 |
+|---|---|---|---|
+| `AI_CLIENT` | 백엔드 | 아니오 | `http` |
+| `AI_SERVICE_URL` | 백엔드 | 아니오 | `http://127.0.0.1:8081` |
+| `AI_SERVICE_TOKEN` | 백엔드 (+ 시작 스크립트가 AI로 전달) | 예 | 임의 긴 무작위 문자열(사용자 생성) |
+| `AI_SERVICE_TIMEOUT_SECONDS` | 백엔드 | 아니오 | 30 (기본값 — 생략 가능) |
+| `AI_INTERNAL_TOKEN` | AI | 예 | **설정하지 않음 권고** — 비우면 시작 스크립트가 `AI_SERVICE_TOKEN` 값을 씀. 설정하면 `AI_SERVICE_TOKEN`과 같아야 함 |
+| `AI_PROVIDER` | AI | 아니오 | `gemini` |
+| `GEMINI_API_KEY` | AI | 예 | 사용자·AI 담당이 대시보드에 직접 입력 (어느 키인지 — Open Question, A-13) |
+| `GEMINI_MODEL` | AI | 아니오 | `gemini-3.8-flash` (인용 — 새 키에서 `gemini-2.5-flash`는 404) |
+| `AI_PORT` | AI · 시작 스크립트 | 아니오 | `8081` (생략 시 기본 8081, `PORT`와 같으면 시작 실패) |
+| `AI_HOST` | AI | 아니오 | 설정하지 않음 — 시작 스크립트가 `127.0.0.1`로 강제 |
+| `AI_REPO_REF` | 빌드 스크립트 | 아니오 | AI 저장소 커밋 SHA(권고) 또는 브랜치 — 필수, Open Question |
+| `AI_REPO_URL` | 빌드 스크립트 | 아니오 | 생략(기본 `https://github.com/line1thon-15/ai.git`) |
+| `PORT` | 백엔드 | 아니오 | Render 제공 값 — 설정하지 않음 |
+| `DATABASE_URL`·`COOKIE_SECURE`·`LOG_LEVEL`·`APP_ENV` | 백엔드 | 위 표 | 기존 그대로 |
 
 frontend 저장소(요청 — [팀 요청 F-3]): `VITE_API_URL`은 **비워 둔다**(설정하면 교차 출처가 되어 쿠키 세션이 동작하지 않음). 백엔드 공개 URL은 `vercel.json` 리라이트 대상에 리터럴로 적는다(시크릿 아님. `vercel.json`이 환경 변수를 치환하지 않는다고 보고 — 추정, T-27에서 확인).
 
@@ -636,19 +656,19 @@ N-09 "그 밖의 제공사(TTS 등, OCR은 2차)는 미성년자 이용 조건 �
 
 AGENTS.md 고정 첫 작업(T-01 완료 전 T-02 이후 착수 금지)의 저장소 간 적용 — **2026-11-08 갱신**: Tasks 소유자(planner)가 실행 단위별 적용으로 정리했다(Tasks "파트별 하네스 분리" 절, 인용): 하네스는 백엔드 T-01·프론트 T-83·AI T-84, 원문 "각 코드 작업은 자기 실행 단위의 하네스(위 표) 완료 후 착수하고, 여러 실행 단위에 걸친 작업은 관련 하네스 전부를 선행으로 둔다.", T-83·T-84는 T-01과 동시 착수 가능(선행 없음). 이 해석과 AGENTS.md 문구(T-01 하나가 러너·스모크와 E2E 러너·E2E 스모크를 포함)의 충돌은 **해소 — 사용자 확정(2026-11-08 '받아들임')** [A-12, DECISIONS #78] — 설계는 위 표의 실행 단위별 범위만 정의한다. 하네스 확인용 최소 화면은 스모크 범위만 검증한다.
 
-## 배포 (2026-11-06 갱신 — 배포 단위 3개)
+## 배포 (2026-11-06 갱신 — 배포 단위 3개. 2026-11-15 갱신 — AI를 백엔드 인스턴스에 함께 실행, 배포 단위 2개 + DB)
 
-PRD N-07 "공개 URL에서 시연 흐름이 동작하는 배포 가능한 mvp", 배포 형태 사용자 선택 원문 "Vercel + PaaS + 관리형 DB (Recommended)"의 실현 메커니즘이다. 구체 서비스는 ADR-0007 추천안으로 진행하고 T-27에서 확정 [A-2 — 보류].
+PRD N-07 "공개 URL에서 시연 흐름이 동작하는 배포 가능한 mvp", 배포 형태 사용자 선택 원문 "Vercel + PaaS + 관리형 DB (Recommended)"의 실현 메커니즘이다. 구체 서비스는 ADR-0007 추천안으로 진행하고 T-27에서 확정 [A-2 — 보류]. **2026-11-15**: AI 배포 위치는 ADR-0021(제안, DECISIONS #135·#136)이 ADR-0007의 "두 번째 웹 서비스"를 대체한다 — 아래 행의 취소선 부분이 옛 결정이다.
 
 | 항목 | 결정 |
 |---|---|
-| 호스팅 / 실행 대상 | 프론트: Vercel 정적 호스팅 + `vercel.json` 리라이트(`/api/:path*` → 백엔드 공개 URL, 그 외 → `index.html`) — frontend 저장소 [팀 요청 F-2]. 백엔드: Python PaaS 웹 서비스(추천 Render). AI: 같은 PaaS의 두 번째 웹 서비스(추천) — ai 저장소. DB: 관리형 Postgres(추천 Neon 또는 Supabase) |
-| 빌드·릴리스 파이프라인 | 백엔드: `main` 병합(팀 컨벤션 "main(최종 데모)") 시 PaaS Git 연동으로 `pip install -r requirements.txt` 후 시작 명령 `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`. 병합 전 CI(pytest) 통과가 조건(DECISIONS #42). 프론트·AI의 빌드는 각 저장소 담당. 배포 순서: 내부 API를 바꾸는 릴리스는 AI 서비스 먼저 → 백엔드 → 프론트 |
+| 호스팅 / 실행 대상 | 프론트: Vercel 정적 호스팅 + `vercel.json` 리라이트(`/api/:path*` → 백엔드 공개 URL, 그 외 → `index.html`) — frontend 저장소 [팀 요청 F-2]. 백엔드: Python PaaS 웹 서비스(추천 Render). ~~AI: 같은 PaaS의 두 번째 웹 서비스(추천) — ai 저장소.~~ **AI(2026-11-15)**: 백엔드 Render 웹 서비스 인스턴스 안의 별도 프로세스 — ai 저장소 코드를 빌드 때 `.ai_runtime/`에 받아 `python -m app`으로 실행, 127.0.0.1:8081에만 바인딩(외부 비공개), 백엔드가 `http://127.0.0.1:8081`로 호출. AI 코드 변경 없음. DB: 관리형 Postgres(추천 Neon 또는 Supabase) |
+| 빌드·릴리스 파이프라인 | 백엔드: `main` 병합(팀 컨벤션 "main(최종 데모)") 시 PaaS Git 연동으로 `pip install -r requirements.txt` 후 시작 명령 `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`. 병합 전 CI(pytest) 통과가 조건(DECISIONS #42). 프론트·AI의 빌드는 각 저장소 담당. 배포 순서: 내부 API를 바꾸는 릴리스는 AI 서비스 먼저 → 백엔드 → 프론트. **2026-11-15 갱신(DECISIONS #136, ADR-0021 제안 — Render 대시보드 설정은 사용자)**: Render 빌드 명령 `bash deploy/render-build.sh` — ① `pip install -r requirements.txt`(기존 그대로) ② `AI_REPO_REF`가 비면 실패 ③ `.ai_runtime/` 삭제 → `git init` → `git fetch --depth 1 origin "$AI_REPO_REF"` → `git checkout FETCH_HEAD` → 받은 SHA를 로그에 출력 ④ `python -m venv .ai_runtime/.venv` → 그 가상환경에 `.ai_runtime/requirements.txt` 설치(백엔드 가상환경과 분리). Render 시작 명령 `bash deploy/render-start.sh` — ① `PORT` = `AI_PORT`(기본 8081)면 실패 ② `AI_INTERNAL_TOKEN`이 비면 `AI_SERVICE_TOKEN` 값 사용 ③ AI 감시 루프를 백그라운드로 시작(작업 디렉터리 `.ai_runtime/`, `AI_HOST=127.0.0.1` 강제, `.ai_runtime/.venv/bin/python -m app`, 출력 접두어 `[ai] `, 종료되면 종료 코드 로그 1줄 후 5초 뒤 재시작) ④ `alembic upgrade head` ⑤ `exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT"`(④⑤는 기존 시작 명령과 같은 동작). 두 스크립트는 `set -euo pipefail`, 시크릿 값을 출력하지 않는다. 스크립트 위치 `deploy/`(저장소 추적 — 소스 코드, implementer). `scripts/`는 하네스 파일(사용자 소유)과 섞이므로 쓰지 않는다. **AI 갱신 = 백엔드 재배포**: AI 담당이 코드를 바꾸면 사용자가 `AI_REPO_REF`를 새 SHA로 바꿔 재배포한다. 한 배포에서 AI·백엔드가 함께 바뀌므로 위 "AI 먼저 → 백엔드" 순서는 같은 배포 안에서 자동으로 맞는다 |
 | 환경과 승격 | 로컬 → 운영(공개 URL) 2단계. 별도 스테이징 없음(일정 N-08). 팀의 `dev` 브랜치는 통합용이며 자동 배포 대상이 아니다(배포는 `main`) — 바꾸려면 팀 합의 |
-| 환경별 설정 | 위 "시크릿과 환경 변수" 표. 로컬: 각자 `.env`(커밋 금지) / 운영: PaaS·Vercel 대시보드 환경 변수. 운영 백엔드는 `AI_CLIENT=http`, `COOKIE_SECURE=true`, `LOG_LEVEL=INFO`. 시크릿 값은 문서·코드·로그에 적지 않는다 |
+| 환경별 설정 | 위 "시크릿과 환경 변수" 표. 로컬: 각자 `.env`(커밋 금지) / 운영: PaaS·Vercel 대시보드 환경 변수. 운영 백엔드는 `AI_CLIENT=http`, `COOKIE_SECURE=true`, `LOG_LEVEL=INFO`. 시크릿 값은 문서·코드·로그에 적지 않는다. 2026-11-15: AI 변수도 백엔드 Render 서비스 한 곳에 둔다 — "시크릿과 환경 변수"의 운영 표(ADR-0021 제안) |
 | DB·상태 마이그레이션 | Alembic 마이그레이션을 백엔드 시작 명령에서 `upgrade head`로 적용(전진만). 콘텐츠(JSON)는 코드와 함께 배포되므로 마이그레이션 대상 아님. AI 서비스는 영속 상태 없음. 시연 데이터는 `python -m app.demo.seed`를 운영 DB에 수동 1회 실행(멱등 — 이미 있으면 건너뜀) |
-| 롤백 절차 | 프론트: Vercel 이전 배포를 다시 운영으로 지정(대시보드, 수 분 — 추정). 백엔드·AI: PaaS에서 이전 커밋 재배포(수 분 — 추정). 마이그레이션이 포함된 릴리스는 `alembic downgrade -1` 후 재배포 — 1차 마이그레이션은 열 추가 위주로 써서 이전 코드와 호환되게 한다. 내부 API 변경 릴리스를 되돌릴 때는 백엔드 → AI 순서 |
-| 헬스체크 / 스모크 테스트 | 백엔드 PaaS 헬스체크 `GET /api/v1/health`(DB 핑 포함), AI PaaS 헬스체크 `GET /internal/v1/health`. 릴리스 후 공개 URL에서 ① `/api/v1/health` 200(Vercel 프록시 경유) ② 로그인 후 쿠키 유지 확인(ADR-0013 — 설계 리스크 D-1) ③ 메인 세션 Browser pane으로 S0 표시 확인 ④ 시연 전 리허설(T-28). 무료 등급 PaaS의 유휴 절전(추정)에 대비해 시연 직전 두 헬스체크로 깨운다 |
+| 롤백 절차 | 프론트: Vercel 이전 배포를 다시 운영으로 지정(대시보드, 수 분 — 추정). 백엔드·AI: PaaS에서 이전 커밋 재배포(수 분 — 추정). 마이그레이션이 포함된 릴리스는 `alembic downgrade -1` 후 재배포 — 1차 마이그레이션은 열 추가 위주로 써서 이전 코드와 호환되게 한다. 내부 API 변경 릴리스를 되돌릴 때는 백엔드 → AI 순서. **2026-11-15 갱신(ADR-0021 제안)**: AI는 백엔드 서비스의 빌드에 포함된다 — 백엔드 커밋만 되돌려 재배포하면 AI는 그 시점의 `AI_REPO_REF` 값으로 다시 받는다. AI만 되돌리기 = `AI_REPO_REF`를 이전 SHA로 바꿔 재배포(그래서 SHA 고정 권고). 백엔드·AI를 함께 되돌리기 = 백엔드 이전 커밋 + 이전 `AI_REPO_REF`. Render "이전 배포로 롤백"이 빌드 산출물(`.ai_runtime/` 포함)을 재사용하는지는 미확인(추정 — 재사용하면 AI도 함께 되돌아감, 첫 배포 뒤 Render 문서·동작으로 확인). 새 구성 전환 자체의 롤백: 새 구성이 확인될 때까지 기존 AI Render 서비스를 정지하지 않고 두며, 실패하면 백엔드 `AI_SERVICE_URL`을 기존 AI 공개 URL로, 빌드·시작 명령을 이전 값(`pip install -r requirements.txt` / `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`)으로 되돌린다 |
+| 헬스체크 / 스모크 테스트 | 백엔드 PaaS 헬스체크 `GET /api/v1/health`(DB 핑 포함), AI PaaS 헬스체크 `GET /internal/v1/health`. 릴리스 후 공개 URL에서 ① `/api/v1/health` 200(Vercel 프록시 경유) ② 로그인 후 쿠키 유지 확인(ADR-0013 — 설계 리스크 D-1) ③ 메인 세션 Browser pane으로 S0 표시 확인 ④ 시연 전 리허설(T-28). 무료 등급 PaaS의 유휴 절전(추정)에 대비해 시연 직전 두 헬스체크로 깨운다. **2026-11-15 갱신(ADR-0021 제안)**: AI PaaS 헬스체크는 없어진다(AI는 외부 비공개). Render 헬스체크는 백엔드 `/api/v1/health` 그대로이며 AI 상태를 넣지 않는다(AI 장애로 인스턴스 전체가 재시작되지 않게 — AI 장애는 연습 화면 503으로만 드러남). AI 생존은 시작 스크립트의 감시 루프(종료 시 재시작)가 맡는다 — 멈춤(살아 있으나 무응답)은 감지하지 않는다(D-15). 릴리스 후 추가 확인: ⑤ Render 로그에서 빌드의 AI SHA 출력·`[ai] ` 시작 로그 확인 ⑥ 공개 URL에서 연습 시작 1회(실제 Gemini — AI 경로 연결 확인). 유휴 절전 뒤에는 서비스 1개만 깨우면 되지만 AI가 백엔드보다 늦게 뜰 수 있어 시연 직전 연습 1회로 워밍업 |
 
 ## 에러 처리
 
@@ -662,7 +682,7 @@ PRD N-07 "공개 URL에서 시연 흐름이 동작하는 배포 가능한 mvp", 
 
 | 항목 | 결정 |
 |---|---|
-| 로깅 (2026-11-06 갱신) | 백엔드: Python `logging`으로 구조화 JSON 한 줄을 stdout에(PaaS 로그 수집). 필드: 시각, 레벨, 요청 ID, 경로, 상태 코드, 지연(ms), 주체 UUID, 오류 코드. 금지: 요청 본문·쿠키·비밀번호·PIN·연결 코드·이메일·내부 토큰·아이 자유 답변과 그 피드백 문장(2026-11-07 추가). AI 서비스 호출은 엔드포인트·소요 시간·상태 코드·`substituted` 여부만 기록하고, 요청 ID를 `X-Request-ID`로 AI 서비스에 전달해 두 서비스 로그를 잇는다. AI 서비스 로깅은 같은 규칙을 권고(운영에서 프롬프트·출력 본문 미기록) [팀 요청 AI-2] |
+| 로깅 (2026-11-06 갱신) | 백엔드: Python `logging`으로 구조화 JSON 한 줄을 stdout에(PaaS 로그 수집). 필드: 시각, 레벨, 요청 ID, 경로, 상태 코드, 지연(ms), 주체 UUID, 오류 코드. 금지: 요청 본문·쿠키·비밀번호·PIN·연결 코드·이메일·내부 토큰·아이 자유 답변과 그 피드백 문장(2026-11-07 추가). AI 서비스 호출은 엔드포인트·소요 시간·상태 코드·`substituted` 여부만 기록하고, 요청 ID를 `X-Request-ID`로 AI 서비스에 전달해 두 서비스 로그를 잇는다. AI 서비스 로깅은 같은 규칙을 권고(운영에서 프롬프트·출력 본문 미기록) [팀 요청 AI-2]. 2026-11-15(ADR-0021 제안): AI 프로세스 출력은 백엔드와 같은 Render 로그 스트림에 `[ai] ` 접두어로 섞인다. 감시 루프는 AI 종료 시 종료 코드만 한 줄 남긴다(환경 변수·토큰 값 출력 금지) |
 | 에러 추적 / 모니터링 | 없음 — MVP는 PaaS 로그와 헬스체크로 대체(일정 N-08, 외부 서비스 추가 계약 회피) |
 | 메트릭 | MVP에서는 별도 수집 없음. PRD 성공 기준의 "시스템 지표" 수치 목표는 OQ 15 잔여(보류) — 정해지면 로그 기반 집계로 시작 |
 
@@ -752,7 +772,7 @@ PRD OQ 45(팀 문서 A~E 대응)가 "실제 메시지 분석은 1차"로 바뀌�
 | # | 질문 | 상태 | 설계의 현재 처리 |
 |---|---|---|---|
 | A-1 | 시연 흐름에서 Y8 예시 성장 기록·G3 예시 안전 알림을 어느 계정에 보이는가 — ① 고정 시연 계정 ② 시연 중 새로 가입·등록한 아이에 덧붙임 | **해소(2026-11-13 — 사용자 확정)** — 메인 세션 질문 원문 "T-67 시연 예시 데이터(아이 성장 기록·보호자 안전 알림)를 시연에서 어느 계정에 보이게 할까요? (적재 스크립트는 DECISIONS #30에 따라 두 방식을 모두 지원하고, 이 질문은 시연에서 쓸 방식을 정하는 거예요)", 사용자 답변 원문 "고정 시연 계정 (추천)" (DECISIONS #132) | 시연은 ① 고정 시연 계정으로 진행. `app/demo/seed`는 #30대로 두 방식 모두 지원(`origin=demo_seed`) — 이 결정은 시연에서 쓸 방식만 정한다 |
-| A-2 | 배포 서비스 확정 — PaaS(추천 Render, 이제 웹 서비스 2개)·관리형 Postgres(추천 Neon·Supabase)와 계정·요금제 | 보류 | ADR-0007 추천안으로 진행, T-27에서 확정 |
+| A-2 | 배포 서비스 확정 — PaaS(추천 Render, 이제 웹 서비스 2개)·관리형 Postgres(추천 Neon·Supabase)와 계정·요금제 | 보류 | ADR-0007 추천안으로 진행, T-27에서 확정. 2026-11-15 메모: 백엔드는 Render에 배포돼 health 200(인용). AI 동시 실행(ADR-0021 제안)으로 Render 웹 서비스는 1개 — 두 프로세스의 메모리 합이 인스턴스 등급 한도 안인지 미측정(D-15) |
 | A-3 | 패키지 설치 허용 범위 | **해소** — 사용자 원문 "필요한 건 추가 해"(메인 세션 해석: 설치 허용) | 기술 스택 확정 |
 | A-4 | 프론트 스택 팀 확인(PRD OQ 6) | **해소** — frontend 저장소 실제 코드(인용) | ADR-0012 |
 | A-5 | 연결 코드 6자·PIN 숫자 4자리 형식과 PIN 잠금 없음의 보안 한계 수용 | **부분 해소(2026-11-07)** — PIN은 보호자가 입력하는 숫자 4자리로 확정, 쉬운 PIN·잠금 없음의 위험은 1차 수용(사용자 "보호자 입력으로 반영", DECISIONS #59). 연결 코드 6자 형식은 보류 유지 | 연결 코드는 기본값으로 진행(설정 상수). 운영 전 과제: F-44 + 쉬운 PIN 거부 |
@@ -782,7 +802,7 @@ PRD OQ 45(팀 문서 A~E 대응)가 "실제 메시지 분석은 1차"로 바뀌�
 |---|---|---|
 | D-1 | Vercel 외부 리라이트(프록시)로 쿠키가 정상 전달되는지 미검증(추정으로 설계). 프론트가 프록시·`VITE_API_URL` 변경을 하지 않으면 로그인 유지 불가 | 프론트 요청 F-1~F-3 [A-11]. T-27에서 공개 URL로 로그인 → 쿠키 → 인증 API 확인. 실패 시 ADR-0013 대안 C(Bearer 토큰)로 새 ADR |
 | D-2 | 테스트는 SQLite, 운영은 Postgres — 방언 차이 | ORM 공통 타입(`Uuid`·`JSON`·`DateTime(timezone=True)`)만 사용, Postgres 전용 기능 금지. T-27·T-28에서 운영 DB로 시연 흐름 확인 |
-| D-3 | 무료 등급 PaaS 유휴 절전으로 시연 첫 요청 지연(추정) — 이제 백엔드·AI 두 서비스 | 시연 직전 두 헬스체크 호출, 필요 시 유료 등급 — [A-2] |
+| D-3 | 무료 등급 PaaS 유휴 절전으로 시연 첫 요청 지연(추정) — 이제 백엔드·AI 두 서비스. 2026-11-15(ADR-0021 제안): 서비스 1개로 줄지만 깨어날 때 AI 프로세스가 백엔드보다 늦게 뜨면 첫 연습 요청이 503일 수 있다(추정) | 시연 직전 ~~두 헬스체크 호출~~ 백엔드 헬스체크 + 연습 시작 1회 워밍업(2026-11-15), 필요 시 유료 등급 — [A-2] |
 | D-4 | 콘텐츠(OQ 3) 미정으로 AI 연습 기능 착수 불가 | `FakePracticeAI` + 테스트용 최소 예시 콘텐츠로 백엔드·프론트는 먼저 진행 가능. 실제 콘텐츠는 OQ 3 답 후 |
 | D-5 | Gemini 키 정지(약관 20(f), PRD R-1) | 연습 화면만 `AI_UNAVAILABLE`, 그 외 화면은 동작. 제공사 교체는 ai 저장소 안에서(N-10) |
 | D-6 (신규) | 저장소 3개 사이 계약 어긋남(공개 API·내부 API) — 프론트는 JavaScript라 컴파일 시점 검출 없음 | docs 저장소 정본 + 계약 샘플 JSON 공유 + 팀 컨벤션의 "다른 파트 담당 리뷰어 지정" + 프론트 E2E(F-6) |
@@ -795,6 +815,7 @@ PRD OQ 45(팀 문서 A~E 대응)가 "실제 메시지 분석은 1차"로 바뀌�
 | D-12 (신규 2026-11-11) | 배지·연속 기록·지표를 저장하지 않고 매 요청 계산하므로(DECISIONS #28·#90), 보존 기간(PRD OQ 32)이 옛 연습 세션을 지우게 정해지면 이미 보인 배지가 사라지고 지표 원천도 줄어든다. 또 지표 (다)는 보호자 경로에서 `practice_turns`를 읽는 예외(ADR-0016)에 기대므로, 그 예외의 보장은 구조가 아니라 테스트(R1~R4)다 | OQ 32 답에서 삭제가 정해지면 배지 테이블(획득 시점 고정)을 새 결정으로 추가. 예외 회귀는 테스트 전략 2026-11-11 ①의 R1~R4를 반드시 둔다 — 하나라도 빠지면 ADR-0016 방법 2(세션 열 저장)로 바꾸는 새 ADR 검토 |
 | D-13 (신규 2026-11-11) | AI 계약 채택 후: ① AI가 Gemini 실패·한도 초과를 오류 대신 고정 문장으로 대체해(`source = "fallback"`) 장애가 화면에 드러나지 않고 대화 품질만 떨어진다(AI 담당 원문 "Gemini 무료 키 하루 제한을 다 써서") ② ~~`variant` fallback(원본 시나리오)이 직전 세션과 같으면 F-12 검사로 503 — 한도 소진 중에는 같은 시나리오 재출제·다시 도전이 실패할 수 있다~~ (2026-11-14 갱신, DECISIONS #133) 한도 소진 중에는 다른 조합 1회 재요청도 fallback이 되어 같은 시나리오 재출제·다시 도전이 직전과 같은 모습으로 진행될 수 있다(F-12 미충족 — PRD F-12 [2026-11-14 예외]가 허용), 그 출제는 `variant` 호출이 2회 ③ 보호자 요약 호출이 G3당 최대 3회로 늘어난다(D-8) | ① 시연 전 리허설(T-28)에서 AI `source` 값을 백엔드 로그(값만, 본문 없음)로 확인 ② 다시 도전 실패는 "다시 시도"로 처리(#85와 같은 화면), 운영 키 결제 계정(A-13) ③ 요약 호출에 짧은 시간 초과 유지(D-8) — 2026-11-15: 영역별 병렬 호출 + 요약 전체 상한으로 대체(D-8, DECISIONS #134) |
 | D-14 (신규 2026-11-12) | A17 동시 답 충돌 처리(DECISIONS #128)는 테스트 SQLite에서 순차 재현으로만 확인된다 — 실제 PostgreSQL에서 같은 세션에 병렬 트랜잭션으로 답을 보내는 경우는 미검증(백엔드 A 리뷰 PR #13 #3 원문 "실제 PostgreSQL 환경에서 병렬 트랜잭션으로 동일 세션에 답변을 제출하는 경우는 아직 검증되지 않았으므로, 배포 전 해당 환경에서도 테스트하는 것을 권고"). 격리 수준·잠금 차이로 충돌 지점이 달라질 수 있다(추정 — D-2 방언 차이와 같은 계열) | 배포 단계 T-27에서 운영과 같은 PostgreSQL에 같은 세션·같은 턴 A17 요청 2개를 병렬로 보내 ① 턴 행 1개만 저장 ② 나머지 요청이 세션 상태에 맞는 409(`TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`)임을 확인. 결과가 다르면 새 결정으로 잠금 방식(예: 세션 행 잠금) 검토 |
+| D-15 (신규 2026-11-15 — ADR-0021 제안) | AI를 백엔드 Render 인스턴스에 함께 실행하면서: ① 장애 격리 상실 — 인스턴스 재시작·메모리 초과·배포 실패가 백엔드와 AI를 함께 멈춘다 ② 감시 루프는 AI 프로세스 종료만 감지 — 멈춤(무응답)은 재시작하지 않아 그동안 연습 API가 시간 초과 503 ③ 두 Python 프로세스 메모리 합(무료 등급 512MB — architect 기억, 추정)이 미측정 ④ AI 갱신마다 백엔드 재배포(권한은 Render 서비스 소유자) ⑤ 로그 섞임 ⑥ Render 빌드·실행 환경 가정(빌드에 `git`·빌드 시점 환경 변수·`python -m venv` 사용 가능, 빌드 디렉터리 유지, 127.0.0.1 포트를 Render가 공개 포트로 오인하지 않음)이 전부 미확인(추정) | ① 수용(사용자 방향 결정 "그렇게 진행") — Render 헬스체크에 AI를 넣지 않아 AI 장애가 인스턴스 재시작으로 번지지 않게 함 ② 측정되면 감시 루프에 헬스 폴링 추가를 새 결정으로 ③ 첫 배포 뒤 Render 메트릭으로 메모리 확인, 초과면 인스턴스 등급(A-2) 또는 ADR-0007 원안(별도 서비스)으로 되돌리는 새 ADR ④ `AI_REPO_REF` SHA 고정 + AI 담당 갱신 요청 시 사용자가 값 변경 ⑤ `[ai] ` 접두어 ⑥ 첫 배포를 이 가정들의 확인으로 쓰고, 실패한 가정은 대체 수단(예: `git` 대신 코드 묶음 다운로드, 별도 가상환경 대신 같은 가상환경 + `pip check`)을 사용자 확인 후 적용 — 조용히 바꾸지 않는다 |
 
 ## 주요 결정
 
@@ -808,7 +829,7 @@ PRD OQ 45(팀 문서 A~E 대응)가 "실제 메시지 분석은 1차"로 바뀌�
 | [ADR-0004](adr/0004-auth-session.md) | 인증·세션: DB 불투명 토큰 + httpOnly 쿠키 + 같은 출처 프록시 | 폐기(→ ADR-0013) |
 | [ADR-0005](adr/0005-data-store.md) | 저장소: PostgreSQL + SQLAlchemy/Alembic, 테스트 SQLite | 제안 |
 | [ADR-0006](adr/0006-test-runners.md) | 테스트 러너 (2026-11-06 범위 갱신 — backend는 pytest만) | 제안 |
-| [ADR-0007](adr/0007-deployment.md) | 배포: Vercel + Python PaaS + 관리형 Postgres (2026-11-06 갱신 — 배포 단위 3개) | 제안 |
+| [ADR-0007](adr/0007-deployment.md) | 배포: Vercel + Python PaaS + 관리형 Postgres (2026-11-06 갱신 — 배포 단위 3개) | 제안 — "AI: 두 번째 웹 서비스" 부분은 ADR-0021(제안)이 대체(2026-11-15) |
 | [ADR-0008](adr/0008-tts.md) | TTS: 브라우저 Web Speech API (프론트 구현) | 제안 |
 | [ADR-0009](adr/0009-practice-selection.md) | 연습 출제: 정상 상황 슬롯 방식 30%, 변형은 백엔드가 결정 | 제안 |
 | [ADR-0010](adr/0010-content-storage.md) | 콘텐츠: JSON 파일 읽기 전용 적재 (2026-11-06 갱신 — 대체 문구·안전 규칙은 ai 저장소) | 제안 |
@@ -822,3 +843,4 @@ PRD OQ 45(팀 문서 A~E 대응)가 "실제 메시지 분석은 1차"로 바뀌�
 | [ADR-0018](adr/0018-not-shown-and-normal-judgment.md) | AI 계약의 `not_shown`과 정상 상황 판정 — 지표·배지의 "목표 단서" 해석 (2026-11-11) | 제안 — N1·M1 2026-11-11 사용자 확정(DECISIONS #109·#110 — 덧붙임). 사용자 승인 전 |
 | [ADR-0019](adr/0019-variant-fallback-retry.md) | `variant` fallback이 직전 변형과 같을 때 503 대신 다른 조합 1회 재요청 후 원본 진행 — #102·ADR-0017의 fallback 503 부분 대체 (2026-11-14) | 승인 (2026-11-15 사용자 승인 — 원문 "이대로 확정", 메인 세션이 사용자 지시로 기입). 방향은 2026-11-14 사용자 결정("백엔드가 다른 변형 요청 (추천)", DECISIONS #133) |
 | [ADR-0020](adr/0020-guardian-summary-parallel-deadline.md) | 보호자 학습 요약 영역별 AI 호출 병렬화 + 요약 전체 상한 25초 — #103의 호출 방식만 부분 대체 (2026-11-15) | 승인 (2026-11-15 사용자 승인 — 원문 "25초로 확정", 메인 세션이 사용자 지시로 기입) (DECISIONS #134) |
+| [ADR-0021](adr/0021-ai-colocated-on-backend-instance.md) | AI 서버를 백엔드 Render 웹 서비스 인스턴스 안에서 별도 프로세스로 함께 실행 — ADR-0007의 AI 배포 단위만 부분 대체, ADR-0011 결정 A·내부 API 그대로 (2026-11-15) | 제안 — 방향은 사용자 답 "그렇게 진행"(2026-11-15), 세부(DECISIONS #136)는 사용자 확인 대상 (DECISIONS #135·#136) |
