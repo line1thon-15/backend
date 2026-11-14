@@ -12,15 +12,18 @@
 """
 
 import json
+import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import event
 
+from app.ai_client.http_client import HttpPracticeAI
 from app.ai_client.ports import AIUnavailableError, SummaryRequest, SummaryResponse
 from app.api.report import GuardianReportResponse
 from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
@@ -29,6 +32,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import CueResult, GuardianNotice, PracticeSession, PracticeTurn
 from app.main import create_app
+from app.services import guardian_report as guardian_report_service_module
 
 CONTENT = load_content()
 MARKER = "GUARDIAN-REPORT-MARKER-5b1e"
@@ -766,3 +770,133 @@ def test_summary_not_generated_for_other_guardians_child(summary_env):
 
     assert response.status_code == 404
     assert ai.requests == []
+
+
+# ==== 요약 병렬 호출 + 전체 상한 (T-98 — ADR-0020 결과 ⑩) ================================
+
+
+@pytest.fixture
+def summary_app_factory(tmp_path):
+    """요약 AI를 지정해 앱을 띄운다. 닫을 것(앱·Http 클라이언트·막힌 대역의 gate)은 teardown에서 정리."""
+    cleanups = []
+
+    def _make(summary_ai) -> Env:
+        db = tmp_path / f"summary-{len(cleanups)}.db"
+        app = create_app(
+            Settings(_env_file=None, database_url=f"sqlite:///{db.as_posix()}", ai_client="fake"),
+            clock=lambda: NOW,
+            summary_ai=summary_ai,
+        )
+        Base.metadata.create_all(app.state.engine)
+        client = TestClient(app)
+        client.__enter__()
+        cleanups.append((client, app))
+        return Env(client)
+
+    yield _make
+    for client, app in cleanups:
+        client.__exit__(None, None, None)
+        app.state.engine.dispose()
+
+
+class BlockingSummaryAI:
+    """`block_area`(영역 표시 이름) 호출은 gate가 열릴 때까지(최대 3초) 막힌다."""
+
+    def __init__(self, block_area: str) -> None:
+        self.block_area = block_area
+        self.gate = threading.Event()
+        self.finished: list[str] = []
+
+    def summary(self, request: SummaryRequest) -> SummaryResponse:
+        if request.area == self.block_area:
+            self.gate.wait(timeout=3.0)
+        self.finished.append(request.area)
+        return SummaryResponse(summary=f"{request.area} 연습을 꾸준히 했어요.")
+
+
+def seed_two_areas(env: Env):
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "missed"})
+    env.seed_session(child["child_id"], area="friend_pressure", outcomes={"guilt_pressure": "missed"})
+    return guardian, child
+
+
+def test_summary_over_deadline_keeps_report_200(summary_app_factory, monkeypatch):
+    # 상한 초과 → summary unavailable, A11은 200·나머지 필드 정상, 막힌 호출을 기다리지 않음
+    monkeypatch.setattr(guardian_report_service_module, "SUMMARY_DEADLINE_SECONDS", 0.2)
+    ai = BlockingSummaryAI(block_area=area_name("friend_pressure"))
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+
+        response = env.report(child["child_id"], guardian)
+        still_blocked = area_name("friend_pressure") not in ai.finished
+    finally:
+        ai.gate.set()
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+    assert body["child"]["nickname"] == "하늘이"
+    assert {a["area"]: a["practice_count"] for a in body["areas"]}["scam"] == 1
+    assert still_blocked
+
+
+def _http_summary_ai(handler) -> HttpPracticeAI:
+    return HttpPracticeAI(
+        base_url="http://ai.test", token="test-token", timeout_seconds=5.0, transport=httpx.MockTransport(handler)
+    )
+
+
+def test_summary_http_read_timeout_keeps_report_200(summary_app_factory):
+    # 실제 HTTP 클라이언트 경로: 한 영역 ReadTimeout → AIUnavailableError → unavailable, A11 200
+    friend = area_name("friend_pressure")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["area"] == friend:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json={"summary": "꾸준히 연습했어요."})
+
+    ai = _http_summary_ai(handler)
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+
+        response = env.report(child["child_id"], guardian)
+    finally:
+        ai.close()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+
+
+def test_summary_http_calls_are_concurrent_through_shared_client(summary_app_factory):
+    # ADR-0020 결과 ③: httpx 동기 클라이언트 1개를 여러 스레드가 동시에 써도 두 호출이 함께 진행·ok
+    barrier = threading.Barrier(2, timeout=2.0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            return httpx.Response(503, text="not concurrent")
+        return httpx.Response(200, json={"summary": f"{json.loads(request.content)['area']} 연습을 꾸준히 했어요."})
+
+    ai = _http_summary_ai(handler)
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+
+        response = env.report(child["child_id"], guardian)
+    finally:
+        ai.close()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [
+            {"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]},
+            {"area": "friend_pressure", "sentences": [f"{area_name('friend_pressure')} 연습을 꾸준히 했어요."]},
+        ],
+    }

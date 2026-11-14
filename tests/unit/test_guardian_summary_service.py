@@ -8,6 +8,9 @@
 - 저장·캐시 없음 — 조회마다 다시 호출
 """
 
+import logging
+import threading
+import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -16,7 +19,8 @@ import pytest
 from app.ai_client.ports import AIUnavailableError, SummaryRequest, SummaryResponse
 from app.core.errors import AppError
 from app.domain.guardian_summary import SummarySession
-from app.services.guardian_report import GuardianReportService, GuardianSummary, GuardianSummaryItem
+from app.services import guardian_report as guardian_report_module
+from app.services.guardian_report import GuardianReportService,GuardianSummary, GuardianSummaryItem
 from app.services.ports import ReportChild
 
 AREAS = ("scam", "identity_lending", "friend_pressure")
@@ -170,14 +174,14 @@ def test_any_area_failure_makes_whole_summary_unavailable(bad_reply):
     assert report.child == repo.child
 
 
-def test_first_area_failure_stops_further_calls():
+def test_first_area_failure_is_unavailable():
+    # T-98(ADR-0020 결과 ①): 병렬 제출이라 "첫 실패 뒤 남은 영역 미호출"은 더 이상 보장하지 않는다 — 결과만 확인
     repo = FakeRepo(two_area_sessions())
     ai = RecordingSummaryAI({"사기": AIUnavailableError("down")})
 
     report = make_service(repo, ai).get_report(uuid4(), repo.child.child_id)
 
-    assert report.summary.status == "unavailable"
-    assert [r.area for r in ai.requests] == ["사기"]
+    assert report.summary == GuardianSummary(status="unavailable", unit="area", items=())
 
 
 def test_summary_is_not_cached_between_reports():
@@ -199,3 +203,215 @@ def test_other_guardians_child_does_not_call_ai():
     assert exc.value.code == "CHILD_NOT_FOUND"
     assert ai.requests == []
     assert repo.summary_calls == []
+
+
+# ==== 병렬 호출 + 요약 전체 상한 (T-98 — ADR-0020, DECISIONS #134) =====================
+# 실제 시간 대기 대신 작은 주입 상한 + Event/Barrier 대역. 막힌 대역은 teardown에서 풀어 스레드를 남기지 않는다.
+
+BLOCK_LIMIT = 3.0  # 대역이 막혀 있는 최대 시간 — 주입 상한보다 충분히 길다
+SMALL_DEADLINE = 0.2
+
+
+def three_area_sessions() -> list[SummarySession]:
+    return [*two_area_sessions(), SummarySession(area="identity_lending", found=("urgency",), missed=())]
+
+
+class GatedSummaryAI:
+    """영역 표시 이름별 동작: "block"(gate가 열릴 때까지 막힘) / "null"(summary=null) / 예외 / 기본은 즉시 정상."""
+
+    def __init__(self, behaviors: dict[str, object] | None = None) -> None:
+        self.behaviors = behaviors or {}
+        self.gate = threading.Event()
+        self._lock = threading.Lock()
+        self.requests: list[SummaryRequest] = []
+        self.finished: list[str] = []
+
+    def summary(self, request: SummaryRequest) -> SummaryResponse:
+        with self._lock:
+            self.requests.append(request)
+        behavior = self.behaviors.get(request.area)
+        if behavior == "block":
+            self.gate.wait(timeout=BLOCK_LIMIT)
+        elif behavior == "null":
+            return SummaryResponse(summary=None)
+        elif isinstance(behavior, BaseException):
+            raise behavior
+        with self._lock:
+            self.finished.append(request.area)
+        return SummaryResponse(summary=f"{request.area} 연습을 {request.practice_count}번 했어요.")
+
+
+@pytest.fixture
+def gated():
+    made: list[GatedSummaryAI] = []
+
+    def _make(behaviors: dict[str, object] | None = None) -> GatedSummaryAI:
+        ai = GatedSummaryAI(behaviors)
+        made.append(ai)
+        return ai
+
+    yield _make
+    for ai in made:
+        ai.gate.set()
+
+
+def make_deadline_service(repo: FakeRepo, ai, deadline: float) -> GuardianReportService:
+    return GuardianReportService(
+        repo,
+        AREAS,
+        CLUE_LABELS,
+        summary_ai=ai,
+        area_names=AREA_NAMES,
+        clock=lambda: NOW,
+        summary_deadline_seconds=deadline,
+    )
+
+
+def test_summary_calls_run_concurrently():
+    # ① 세 영역 호출이 동시에 진행돼야 Barrier(3)를 넘는다 — 순차면 첫 호출이 Barrier에서 시간 초과
+    barrier = threading.Barrier(3, timeout=2.0)
+
+    class BarrierAI(RecordingSummaryAI):
+        def summary(self, request):
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                raise AIUnavailableError("not concurrent") from None
+            return super().summary(request)
+
+    repo, ai = FakeRepo(three_area_sessions()), BarrierAI()
+
+    report = make_deadline_service(repo, ai, deadline=5.0).get_report(uuid4(), repo.child.child_id)
+
+    assert report.summary.status == "ok"
+    assert len(ai.requests) == 3
+
+
+def test_summary_items_keep_input_area_order_not_completion_order():
+    # ② 두 번째 영역이 먼저 끝나도 items는 입력 영역 순서
+    friend_done = threading.Event()
+    completion: list[str] = []
+
+    class ReverseAI(RecordingSummaryAI):
+        def summary(self, request):
+            if request.area == "사기" and not friend_done.wait(timeout=2.0):
+                raise AIUnavailableError("friend never finished")
+            response = super().summary(request)
+            completion.append(request.area)
+            if request.area == "친구의 무리한 부탁":
+                friend_done.set()
+            return response
+
+    repo, ai = FakeRepo(two_area_sessions()), ReverseAI()
+
+    report = make_deadline_service(repo, ai, deadline=5.0).get_report(uuid4(), repo.child.child_id)
+
+    assert completion == ["친구의 무리한 부탁", "사기"]
+    assert report.summary.status == "ok"
+    assert [item.area for item in report.summary.items] == ["scam", "friend_pressure"]
+
+
+def test_all_areas_over_deadline_is_unavailable_without_waiting(gated):
+    # ③ 전체 상한 초과 → unavailable, 막힌 호출을 기다리지 않고 반환
+    ai = gated({"사기": "block", "친구의 무리한 부탁": "block"})
+    repo = FakeRepo(two_area_sessions())
+
+    started = time.monotonic()
+    report = make_deadline_service(repo, ai, SMALL_DEADLINE).get_report(uuid4(), repo.child.child_id)
+    elapsed = time.monotonic() - started
+
+    assert report.summary == GuardianSummary(status="unavailable", unit="area", items=())
+    assert ai.finished == []  # 막힌 호출이 아직 끝나지 않았는데 반환됨
+    assert elapsed < BLOCK_LIMIT
+
+
+def test_one_area_over_deadline_makes_whole_summary_unavailable(gated):
+    # ④ 일부만 초과해도 전체 unavailable — 부분 결과 없음
+    ai = gated({"친구의 무리한 부탁": "block"})
+    repo = FakeRepo(two_area_sessions())
+
+    report = make_deadline_service(repo, ai, SMALL_DEADLINE).get_report(uuid4(), repo.child.child_id)
+
+    assert report.summary == GuardianSummary(status="unavailable", unit="area", items=())
+    assert "친구의 무리한 부탁" not in ai.finished
+    assert report.child == repo.child
+
+
+@pytest.mark.parametrize("failure", [AIUnavailableError("down"), "null"], ids=["transport_failure", "null_summary"])
+def test_known_failure_returns_without_waiting_other_areas(gated, failure):
+    # ⑤ 한 영역 실패를 알면 다른 영역(막힘)을 기다리지 않고 바로 반환 — 상한(2초) 전에
+    ai = gated({"사기": "block", "친구의 무리한 부탁": failure})
+    repo = FakeRepo(two_area_sessions())
+
+    started = time.monotonic()
+    report = make_deadline_service(repo, ai, deadline=2.0).get_report(uuid4(), repo.child.child_id)
+    elapsed = time.monotonic() - started
+
+    assert report.summary == GuardianSummary(status="unavailable", unit="area", items=())
+    assert "사기" not in ai.finished  # 막힌 영역을 기다리지 않았다
+    assert elapsed < 2.0
+
+
+def test_single_area_calls_ai_once_and_is_ok():
+    # ⑥ 영역 1개(현재 출제 범위) → 1회 호출 ok
+    repo = FakeRepo([SummarySession(area="scam", found=("urgency",), missed=())])
+    ai = RecordingSummaryAI()
+
+    report = make_deadline_service(repo, ai, deadline=5.0).get_report(uuid4(), repo.child.child_id)
+
+    assert report.summary == GuardianSummary(
+        status="ok", unit="area", items=(GuardianSummaryItem(area="scam", sentences=("사기 연습을 1번 했어요.",)),)
+    )
+    assert len(ai.requests) == 1
+
+
+def test_insufficient_with_deadline_service_calls_ai_zero_times():
+    # ⑦ 기록 부족 → AI 0회 (상한 주입과 무관)
+    repo, ai = FakeRepo([]), RecordingSummaryAI()
+
+    report = make_deadline_service(repo, ai, deadline=5.0).get_report(uuid4(), repo.child.child_id)
+
+    assert report.summary == GuardianSummary(status="insufficient", unit="area", items=())
+    assert ai.requests == []
+
+
+def test_default_deadline_is_25_seconds():
+    # ⑧ 기본 상한 = 25초 (ADR-0020 규칙 3)
+    assert guardian_report_module.SUMMARY_DEADLINE_SECONDS == 25
+
+
+def test_service_without_deadline_argument_uses_module_constant(gated, monkeypatch):
+    # ⑧ 생성자 인자를 안 주면 설정 상수를 쓴다 — 상수를 작게 바꿔 막힌 호출에서 상한으로 끝나는지 확인
+    monkeypatch.setattr(guardian_report_module, "SUMMARY_DEADLINE_SECONDS", SMALL_DEADLINE)
+    ai = gated({"사기": "block"})
+    repo = FakeRepo(two_area_sessions())
+
+    report = make_service(repo, ai).get_report(uuid4(), repo.child.child_id)
+
+    assert report.summary.status == "unavailable"
+    assert "사기" not in ai.finished
+
+
+def test_non_ai_unavailable_error_propagates():
+    # ⑨ AIUnavailableError가 아닌 예외(프로그래밍 오류)는 전파 → 라우터에서 500
+    repo = FakeRepo(two_area_sessions())
+    ai = RecordingSummaryAI({"친구의 무리한 부탁": RuntimeError("bug")})
+
+    with pytest.raises(RuntimeError, match="bug"):
+        make_deadline_service(repo, ai, deadline=5.0).get_report(uuid4(), repo.child.child_id)
+
+
+def test_deadline_exceeded_logs_counts_only(gated, caplog):
+    # ADR-0020 규칙 7: 상한 초과 warning 1줄 — 영역 수·상한값·경과 시간만, 영역·단서 이름 금지
+    ai = gated({"사기": "block"})
+    repo = FakeRepo(two_area_sessions())
+
+    with caplog.at_level(logging.WARNING, logger="app.services.guardian_report"):
+        make_deadline_service(repo, ai, SMALL_DEADLINE).get_report(uuid4(), repo.child.child_id)
+
+    records = [r for r in caplog.records if r.name == "app.services.guardian_report"]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "areas=2" in message and "deadline=0.2" in message and "elapsed=" in message
+    for forbidden in ("사기", "친구", "빨리 하래요", "돈을 먼저 내래요"):
+        assert forbidden not in message
