@@ -71,7 +71,7 @@ class SqlAlchemyDemoSeedRepository:
             if db.get(Child, child_id) is None:
                 return False
             # 실제(live) 다시 도전이 가리키는 예시 세션은 지운 뒤 같은 순번(draw_index)의 새 예시 세션으로 다시 연결한다
-            # — 예시는 항상 계획 수만큼(중복 집계 없음), retry_of는 NULL이 되지 않는다
+            # — 예시는 항상 계획 수만큼(중복 집계 없음). 대응하는 새 세션이 없으면 retry_of는 비운다(NULL, 아래 루프)
             # (T-97, 사용자 결정 2026-11-15 "새 예시로 다시 연결 (추천)" — PR #27 팀원 리뷰 P2 ①)
             old_demo = PracticeSession.__table__.alias("old_demo")
             relinks = [

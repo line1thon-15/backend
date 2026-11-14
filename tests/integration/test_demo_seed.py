@@ -397,6 +397,44 @@ def test_reseed_does_not_relink_when_plan_changed_scenario_at_same_draw_index(en
     assert demo_count == 8
 
 
+def test_reseed_does_not_relink_when_only_target_cues_changed(env):
+    """PR #27 재리뷰 후속 권고 ③ — 순번·시나리오는 같고 목표 단서만 바뀐 계획이면 잇지 않는다(NULL)."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, _old_id, draw_index, _scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+    plan = build_demo_plan(NOW, CONTENT)
+    changed = tuple(
+        replace(s, target_cue_ids=s.target_cue_ids[:-1]) if s.draw_index == draw_index else s for s in plan.sessions
+    )
+    assert changed != plan.sessions  # 목표 단서가 실제로 달라졌는지
+
+    assert env.repository().replace_demo_records(UUID(child_id), replace(plan, sessions=changed))
+
+    with env.session_factory() as db:
+        assert db.get(PracticeSession, live_id).retry_of is None
+
+
+def test_reseed_three_times_keeps_eight_demo_sessions_and_relink(env):
+    """PR #27 재리뷰 후속 권고 ③ — 3회 이상 재적재해도 예시는 8개, live 연결은 매번 같은 순번의 새 예시로 옮겨진다."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, _old_id, draw_index, scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+    seen_targets = set()
+
+    for _ in range(3):
+        seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+        with env.session_factory() as db:
+            target = db.get(PracticeSession, db.get(PracticeSession, live_id).retry_of)
+            assert (target.origin, target.draw_index, target.scenario_id) == ("demo_seed", draw_index, scenario_id)
+            seen_targets.add(target.id)
+            assert db.scalar(
+                select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
+            ) == 8
+    assert len(seen_targets) == 3  # 매번 새 세션으로 옮겨짐(옛 세션은 지워짐)
+
+
 def test_reseed_with_live_retry_keeps_growth_and_report_counts(env):
     """PR #27 팀원 리뷰 P2 ① 회귀 — live 다시 도전이 있어도 재적재 뒤 Y8 성장·G3 리포트 값은 처음 적재와 같다."""
     account = load_demo_account()
