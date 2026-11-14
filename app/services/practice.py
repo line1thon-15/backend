@@ -30,6 +30,7 @@ from app.ai_client.ports import (
 )
 from app.content.loader import ContentBundle
 from app.core.errors import AppError
+from app.domain.hint_level import hint_levels
 from app.domain.practice_end import is_practice_over
 from app.domain.practice_result import (
     CARD_LEVEL_BY_KEY,
@@ -249,19 +250,24 @@ class PracticeService:
             raise AppError(code="UNAUTHENTICATED", status_code=401, message="child authentication is required")
         return profile
 
-    def _weak_cue_ids(self, child_id: UUID) -> frozenset[str]:
-        """약점 우선 출제(F-18 ①, T-36)의 약점 단서 — Y8·G3와 같은 공통 규칙(DECISIONS #122).
+    def _ended_cue_outcomes(self, child_id: UUID) -> list[CueOutcome]:
+        """종료 세션의 found·missed만(멈춘·진행 중 제외 — 리포지토리, not_shown은 저장 안 됨 #109)."""
+        return [
+            CueOutcome(cue_id=o.cue_id, outcome=o.outcome, ended_at=o.ended_at, session_id=o.session_id)
+            for o in self._repository.ended_cue_outcomes(child_id)
+        ]
 
-        종료 세션의 found·missed만 본다(멈춘·진행 중 제외 — 리포지토리, not_shown은 저장 안 됨 #109).
+    def _weak_cue_ids(self, child_id: UUID) -> frozenset[str]:
+        """약점 우선 출제(F-18 ①, T-36)의 약점 단서 — Y8·G3와 같은 공통 규칙(DECISIONS #122)."""
+        return frozenset(select_weak_cues(self._ended_cue_outcomes(child_id)))
+
+    def _session_hint_level(self, child_id: UUID, clue_ids: Sequence[str]) -> int | None:
+        """세션 힌트 단계 = 목표 단서별 힌트 단계의 최댓값(F-18 ②, T-36 — 2026-11-14 사용자 결정 "가장 큰 값").
+
+        목표 단서가 없으면(정상 상황) None. 1차 AI 계약에 없으므로 저장만 한다(#104 ④).
         """
-        return frozenset(
-            select_weak_cues(
-                [
-                    CueOutcome(cue_id=o.cue_id, outcome=o.outcome, ended_at=o.ended_at, session_id=o.session_id)
-                    for o in self._repository.ended_cue_outcomes(child_id)
-                ]
-            )
-        )
+        levels = hint_levels(self._ended_cue_outcomes(child_id), clue_ids)
+        return max(levels.values()) if levels else None
 
     def _preferred_platforms(self, favorite_apps: Sequence[str]) -> frozenset[str]:
         return frozenset(
@@ -330,6 +336,7 @@ class PracticeService:
                 draw_index=draw_index,
                 started_at=self._clock(),
                 retry_of=retry_of,
+                hint_level=self._session_hint_level(child_id, clue_ids),
             ),
             first_turn,
         )

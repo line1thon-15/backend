@@ -37,10 +37,18 @@ class WeakEnv(Env):
         super().__init__(client, ai)
         self._day = 0
 
-    def past_session(self, child_id: UUID, cues: dict[str, str], *, status: str = "ended") -> None:
-        """과거 세션 1개 + 단서 판정 행. 시나리오 ID는 콘텐츠에 없는 값(F-12 직전 변형 조회에 끼지 않게)."""
+    def past_session(
+        self,
+        child_id: UUID,
+        cues: dict[str, str],
+        *,
+        status: str = "ended",
+        ended_at: datetime | None = None,
+    ) -> None:
+        """과거 세션 1개 + 단서 판정 행. 시나리오 ID는 콘텐츠에 없는 값(F-12 직전 변형 조회에 끼지 않게).
+        `ended_at`을 주지 않으면 T0부터 하루씩 늘린다."""
         self._day += 1
-        ended_at = T0 + timedelta(days=self._day)
+        ended_at = ended_at or T0 + timedelta(days=self._day)
         with self.session_factory.begin() as db:
             row = PracticeSession(
                 child_id=child_id,
