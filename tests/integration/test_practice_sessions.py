@@ -10,6 +10,7 @@ DB는 테스트마다 OS 임시 디렉터리(pytest tmp_path)의 SQLite 파일 �
 import json
 import logging
 import random
+import shutil
 from collections.abc import Callable, Iterator
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,7 +21,7 @@ from sqlalchemy import func, select
 
 from app.ai_client.fake import FakePracticeAI
 from app.ai_client.ports import AIUnavailableError, Choice, ClueResult
-from app.content.loader import load_content
+from app.content.loader import DEFAULT_DATA_DIR, load_content
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import CueResult, PracticeSession, PracticeTurn
@@ -305,9 +306,34 @@ def test_start_prefers_favorite_app_platform(env):
         assert CONTENT.app_type_of(request.platform) != "job_site"
 
 
+@pytest.fixture
+def scam_h1_only_env(tmp_path) -> Iterator[Env]:
+    """실제 콘텐츠 사본 + 사기 시나리오 전부 min_grade H1 — 학년 제한으로 후보가 없는 경우 (OS 임시 디렉터리)."""
+    data_dir = tmp_path / "content"
+    shutil.copytree(DEFAULT_DATA_DIR, data_dir)
+    meta_path = data_dir / "scenario_meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    for item in meta["scenarios"]:
+        if CONTENT.scenarios[item["scenario_id"]].area == "scam":
+            item["min_grade"] = "H1"
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    ai = RecordingPracticeAI()
+    app = create_app(
+        Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'limited.db').as_posix()}", ai_client="fake"),
+        practice_ai=ai,
+        rng_factory=lambda: random.Random(1234),
+        content_dir=data_dir,
+    )
+    Base.metadata.create_all(app.state.engine)
+    with TestClient(app) as client:
+        yield Env(client, ai)
+    app.state.engine.dispose()
+
+
 @pytest.mark.parametrize("grade", ["E6", "M3"])
-def test_non_high_school_child_gets_no_scenario_for_scam(env, grade):
-    # 현재 사본의 사기 시나리오 2개는 모두 고수익 알바(min_grade H1)
+def test_grade_limit_leaving_no_candidate_is_no_scenario_available(scam_h1_only_env, grade):
+    # 학년 제한으로 그 영역 후보가 하나도 없으면 409 (T-30 전 실제 사본 = 사기 2개 모두 H1이던 경우)
+    env = scam_h1_only_env
     env.login_child(grade=grade)
 
     response = env.start("scam")
@@ -320,25 +346,13 @@ def test_non_high_school_child_gets_no_scenario_for_scam(env, grade):
 
 
 @pytest.mark.parametrize("grade", ["H1", "H3"])
-def test_high_school_child_gets_high_paying_job_scenario(env, grade):
+def test_high_school_child_gets_scam_scenario_with_subtype(env, grade):
     env.login_child(grade=grade)
 
     response = env.start("scam")
 
     assert response.status_code == 201
-    assert env.session_row(response.json()["session_id"]).subtype == "high_paying_job"
-
-
-@pytest.mark.parametrize("area", ["identity_lending", "friend_pressure"])
-def test_area_without_scenarios_is_no_scenario_available(env, area):
-    env.login_child(grade="H1")
-
-    response = env.start(area)
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "NO_SCENARIO_AVAILABLE"
-    assert env.ai.calls == []
-    assert env.count(PracticeSession) == 0
+    assert env.session_row(response.json()["session_id"]).subtype in {"high_paying_job", "game_item", "allowance"}
 
 
 @pytest.mark.parametrize(
