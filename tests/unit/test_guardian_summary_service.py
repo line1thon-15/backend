@@ -20,7 +20,7 @@ from app.ai_client.ports import AIUnavailableError, SummaryRequest, SummaryRespo
 from app.core.errors import AppError
 from app.domain.guardian_summary import SummarySession
 from app.services import guardian_report as guardian_report_module
-from app.services.guardian_report import GuardianReportService,GuardianSummary, GuardianSummaryItem
+from app.services.guardian_report import GuardianReportService, GuardianSummary, GuardianSummaryItem
 from app.services.ports import ReportChild
 
 AREAS = ("scam", "identity_lending", "friend_pressure")
@@ -323,6 +323,24 @@ def test_all_areas_over_deadline_is_unavailable_without_waiting(gated):
     assert report.summary == GuardianSummary(status="unavailable", unit="area", items=())
     assert ai.finished == []  # 막힌 호출이 아직 끝나지 않았는데 반환됨
     assert elapsed < BLOCK_LIMIT
+
+
+def test_in_flight_calls_finish_in_background_and_are_discarded_after_deadline(gated):
+    # PR #31 팀원 리뷰 P2 ② — shutdown(wait=False)는 이미 보낸 호출을 끊지 않는다: 상한 뒤에도 백그라운드에서
+    # 끝까지 실행되지만, 반환된 결과(unavailable)는 바뀌지 않는다(결과 버림, ADR-0020 결정 5)
+    ai = gated({"사기": "block", "친구의 무리한 부탁": "block"})
+    repo = FakeRepo(two_area_sessions())
+
+    report = make_deadline_service(repo, ai, SMALL_DEADLINE).get_report(uuid4(), repo.child.child_id)
+    assert ai.finished == []
+
+    ai.gate.set()
+    deadline = time.monotonic() + BLOCK_LIMIT
+    while len(ai.finished) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert sorted(ai.finished) == sorted(["사기", "친구의 무리한 부탁"])  # 호출은 백그라운드에서 끝까지 실행됨
+    assert report.summary == GuardianSummary(status="unavailable", unit="area", items=())  # 결과는 버려짐
 
 
 def test_one_area_over_deadline_makes_whole_summary_unavailable(gated):
