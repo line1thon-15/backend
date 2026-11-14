@@ -277,6 +277,15 @@ class PracticeService:
         if not check.is_fallback_repeat(response, previous=previous):
             check.check_variant(response, request=request, scenario_clue_ids=clue_ids, previous=previous)
             return response.variant
+        # 재요청 전에도 첫 응답의 VA1·VA2는 검사한다 — 계약 위반이면 재요청 없이 503 (ADR-0019 "VA1·VA2 항상",
+        # PR #30 팀원 리뷰 P2). fallback이라 VA3는 해당 없고, 직전과 같음(VA4)은 재요청 조건이라 면제한다.
+        check.check_variant(
+            response,
+            request=request,
+            scenario_clue_ids=clue_ids,
+            previous=previous,
+            allow_fallback_repeat=True,
+        )
 
         second_axes = choose_variant_axes(
             candidate,

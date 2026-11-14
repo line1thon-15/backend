@@ -664,6 +664,45 @@ def test_5_retry_rerequest_failure_is_503_and_saves_nothing(env):
     assert "start" not in env.ai.names()
 
 
+def _broken_first_fallback(pair: tuple[str, str], broken: dict):
+    """첫 응답만 fallback(원본 = pair) + VA1·VA2 위반 값, 이후는 정상 model 응답 (PR #30 팀원 리뷰 P2 재현)."""
+    count = {"n": 0}
+
+    def override(_request, response):
+        count["n"] += 1
+        if count["n"] > 1:
+            return response
+        variant = response.variant.model_copy(update={"platform": pair[0], "tone": pair[1], **broken(response.variant)})
+        return response.model_copy(update={"source": "fallback", "variant": variant})
+
+    return override
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        pytest.param(lambda v: {"base_scenario_id": "not-this-scenario"}, id="VA1-scenario-id"),
+        pytest.param(lambda v: {"clues": list(reversed(v.clues))}, id="VA2-clue-order"),
+    ],
+)
+def test_retry_first_fallback_contract_violation_is_503_without_rerequest(env, broken):
+    # ADR-0019 결정 5·응답 검증: VA1·VA2는 항상 — 재요청 조건(fallback·직전과 같음)이어도 첫 응답부터 검사
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    original = env.session_row(original_id).variant
+    previous = (original["platform"], original["tone"])
+    env.ai.overrides["variant"] = _broken_first_fallback(previous, broken)
+    env.ai.calls.clear()
+    before = env.count(PracticeSession)
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "AI_UNAVAILABLE"
+    assert env.ai.names() == ["variant"]  # 재요청·start 없음
+    assert env.count(PracticeSession) == before
+
+
 def test_retry_first_request_failure_is_not_rerequested(env):
     env.login_child(grade="H1")
     original_id = env.ended(("correct",))
