@@ -13,6 +13,7 @@
 import json
 import re
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -25,6 +26,7 @@ from app.content.loader import load_content
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import Child, CueResult, Guardian, GuardianNotice, PracticeSession, PracticeTurn
+from app.demo.plan import build_demo_plan
 from app.demo.seed import (
     DEFAULT_ACCOUNT_FILE,
     DemoSeedConfigError,
@@ -330,6 +332,141 @@ def test_attach_seed_adds_records_to_given_child_and_keeps_live_rows(env):
     login_child(client, link_code, "1234")
     body = client.get("/api/v1/me/growth").json()
     assert_demo_growth(body, previous_end="2026-11-06", today="2026-11-13")
+
+
+def add_live_retry_of_first_demo(env: Env, child_id: UUID) -> tuple[UUID, UUID, int, str]:
+    """가장 오래된 예시 세션을 가리키는 진행 중 live 다시 도전을 만든다 → (live id, 예시 id, draw_index, scenario_id)."""
+    with env.session_factory.begin() as db:
+        referenced = db.scalars(
+            select(PracticeSession).where(PracticeSession.origin == "demo_seed").order_by(PracticeSession.started_at)
+        ).first()
+        live = PracticeSession(
+            child_id=child_id, mode="retry", area="scam", subtype=None,
+            scenario_id=referenced.scenario_id, is_normal=False, target_cue_ids=[], variant={},
+            scenario_title="t", child_setup="s", ai_role_name="r", status="in_progress",
+            origin="live", started_at=NOW - timedelta(minutes=5), ended_at=None, retry_of=referenced.id,
+        )
+        db.add(live)
+        db.flush()
+        return live.id, referenced.id, referenced.draw_index, referenced.scenario_id
+
+
+def test_reseed_relinks_live_retry_to_new_demo_session(env):
+    """T-97 — 재적재 때 예시 행은 모두 교체하고, 실제(live) 다시 도전의 retry_of는 같은 순번(draw_index)의
+    새 예시 세션으로 옮긴다(사용자 결정 2026-11-15 "새 예시로 다시 연결 (추천)" — PR #27 팀원 리뷰 P2 ①).
+    예시는 항상 8개(중복 집계 없음), retry_of는 NULL이 되지 않는다."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, old_id, draw_index, scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+
+    with env.session_factory() as db:
+        assert db.get(PracticeSession, old_id) is None
+        new_target = db.get(PracticeSession, db.get(PracticeSession, live_id).retry_of)
+        assert new_target is not None
+        assert (new_target.origin, new_target.draw_index, new_target.scenario_id) == ("demo_seed", draw_index, scenario_id)
+        demo_count = db.scalar(
+            select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
+        )
+    assert demo_count == 8
+
+
+def test_reseed_does_not_relink_when_plan_changed_scenario_at_same_draw_index(env):
+    """PR #27 재리뷰 P2 ① — 계획이 바뀌어 같은 순번의 시나리오·목표 단서가 달라졌으면 다른 시나리오로 잇지 않는다.
+    대응 세션이 없을 때 정책: retry_of는 비운다(NULL) — 이 값은 다시 도전을 만들 때만 읽히고 이후 로직은 읽지 않는다."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, _old_id, draw_index, scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+    plan = build_demo_plan(NOW, CONTENT)
+    other = next(s for s in plan.sessions if s.scenario_id != scenario_id)
+    changed = tuple(
+        replace(s, scenario_id=other.scenario_id, target_cue_ids=other.target_cue_ids) if s.draw_index == draw_index else s
+        for s in plan.sessions
+    )
+
+    assert env.repository().replace_demo_records(UUID(child_id), replace(plan, sessions=changed))
+
+    with env.session_factory() as db:
+        assert db.get(PracticeSession, live_id).retry_of is None
+        demo_count = db.scalar(
+            select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
+        )
+    assert demo_count == 8
+
+
+def test_reseed_does_not_relink_when_only_target_cues_changed(env):
+    """PR #27 재리뷰 후속 권고 ③ — 순번·시나리오는 같고 목표 단서만 바뀐 계획이면 잇지 않는다(NULL)."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, _old_id, draw_index, _scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+    plan = build_demo_plan(NOW, CONTENT)
+    changed = tuple(
+        replace(s, target_cue_ids=s.target_cue_ids[:-1]) if s.draw_index == draw_index else s for s in plan.sessions
+    )
+    assert changed != plan.sessions  # 목표 단서가 실제로 달라졌는지
+
+    assert env.repository().replace_demo_records(UUID(child_id), replace(plan, sessions=changed))
+
+    with env.session_factory() as db:
+        assert db.get(PracticeSession, live_id).retry_of is None
+
+
+def test_reseed_three_times_keeps_eight_demo_sessions_and_relink(env):
+    """PR #27 재리뷰 후속 권고 ③ — 3회 이상 재적재해도 예시는 8개, live 연결은 매번 같은 순번의 새 예시로 옮겨진다."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, _old_id, draw_index, scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+    seen_targets = set()
+
+    for _ in range(3):
+        seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+        with env.session_factory() as db:
+            target = db.get(PracticeSession, db.get(PracticeSession, live_id).retry_of)
+            assert (target.origin, target.draw_index, target.scenario_id) == ("demo_seed", draw_index, scenario_id)
+            seen_targets.add(target.id)
+            assert db.scalar(
+                select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
+            ) == 8
+    assert len(seen_targets) == 3  # 매번 새 세션으로 옮겨짐(옛 세션은 지워짐)
+
+
+def test_reseed_with_live_retry_keeps_growth_and_report_counts(env):
+    """PR #27 팀원 리뷰 P2 ① 회귀 — live 다시 도전이 있어도 재적재 뒤 Y8 성장·G3 리포트 값은 처음 적재와 같다."""
+    account = load_demo_account()
+    result = seed_fixed_account(env.repository(), CONTENT, account, NOW)
+    add_live_retry_of_first_demo(env, result.child_id)
+
+    seed_fixed_account(env.repository(), CONTENT, account, NOW)
+
+    child = env.client()
+    login_child(child, account.link_code, account.pin)
+    growth = child.get("/api/v1/me/growth")
+    assert growth.status_code == 200, growth.text
+    assert_demo_growth(growth.json(), previous_end="2026-11-06", today="2026-11-13")
+
+    guardian = env.client()
+    login_guardian(guardian, account.guardian_email, account.guardian_password)
+    report = guardian.get(f"/api/v1/children/{result.child_id}/report")
+    assert report.status_code == 200, report.text
+    scam = next(a for a in report.json()["areas"] if a["area"] == "scam")
+    assert scam["practice_count"] == 8
+
+
+def test_reseed_without_live_references_still_replaces_all_demo_rows(env):
+    """T-97 경계 — live 참조가 없으면 기존처럼 예시 행을 모두 교체(행 수 불변)."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    before = env.counts()
+
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+
+    assert env.counts() == before
 
 
 # ==== 경계: 재실행 안전(멱등)·날짜 재기준 ==================================================
