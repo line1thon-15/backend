@@ -48,6 +48,7 @@ bash scripts/init.sh "프로젝트명"
 
 **연습 API (A15~A18)**
 - A15 `POST /practice/sessions`는 두 모드를 받는다. `mode:"area"`+`area`는 영역별 출제(영역 값 `scam`·`identity_lending`·`friend_pressure`)이고, `mode:"retry"`+`retry_of`는 끝난 세션의 다시 도전(영역은 원 세션 값)이다. `mission` 모드는 요청으로 받지 않는다. 지금 콘텐츠로는 고등학생만 출제된다(사기 시나리오 2개가 `min_grade H1`, CHANGELOG T-15 인용).
+- **오늘의 미션 `mode:"mission"` (T-49) — PR #33, dev 미병합** — 위 A15 설명은 `dev` 15490a5 기준이다. 브랜치 `feat/T-49-mission-mode` 커밋 0715f41에만 있고 PR #33(base dev, 열림)으로 올라가 있다. 병합되면 `{"mode":"mission"}`이 영역 없이 기존 출제 규칙으로 새로 출제하고(`area`·`retry_of`를 함께 보내면 422, `draw_index`는 area 모드와 순번 공유), 누를 때마다 새로 출제한다(하루 1개 고정·영역 선택·완료 표시는 PRD OQ 13 미결). 현재 콘텐츠는 사기 영역(고1 이상)뿐이라 중학생 이하는 409다. 영역 간 출제는 테스트용 임시 콘텐츠로만 검증했다. QA 989 passed(`.artifacts/verification/T-49/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음).
 - A17 요청은 `{choice_id, turn_index}`이고 둘 다 필수다. 현재 턴이 아닌 `turn_index`는 409 `TURN_ALREADY_ANSWERED`, 동시 충돌은 `TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`, `turn_index` 누락·음수·비정수는 422 `VALIDATION_ERROR`다(T-91).
 - A18 결과는 찾은/놓친 단서 카드와 `can_retry`를 준다. 카드 색은 K1 green / K2 yellow / K3 green / K4 green / K5 yellow다(DECISIONS #120). 정상 상황 출제가 1차에서 꺼져 있어 정상 상황 결과 조회는 범위 밖이다.
 - 출제는 약점 단서(놓침 2회 이상 + 최근 놓침, 최대 3개)를 가진 시나리오를 우선하고(T-36), 세션 `hint_level`은 저장만 한다 — 화면의 `hint`는 항상 null이다. `HINT_MAX=2`는 잠정값(PRD OQ 14)이다.
