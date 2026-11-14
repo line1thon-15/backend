@@ -2,14 +2,15 @@
 
 - 예시 행은 `origin = demo_seed`로 같은 테이블에 넣는다.
 - 재실행 안전: 그 아이의 `demo_seed` 행(세션·턴·단서 판정·알림)을 지우고 새 계획으로 다시 넣는다 — 한 트랜잭션.
-  `live` 행은 건드리지 않는다.
+  `live` 행은 건드리지 않는다. 단 `live` 다시 도전이 가리키던 예시 세션은 같은 순번(`draw_index`)의 새 예시
+  세션으로 `retry_of`만 옮긴다(T-97 — 사용자 결정 2026-11-15 "새 예시로 다시 연결 (추천)").
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Child, CueResult, Guardian, GuardianNotice, PracticeSession, PracticeTurn
@@ -69,27 +70,35 @@ class SqlAlchemyDemoSeedRepository:
         with self._session_factory.begin() as db:
             if db.get(Child, child_id) is None:
                 return False
-            # 실제(live) 다시 도전이 가리키는 예시 세션은 남긴다 — 지우면 retry_of가 NULL이 된다
-            # (T-97, 사용자 결정 2026-11-14 "연결된 예시는 남기기 (추천)")
-            referenced_by_live = [
-                session_id
-                for session_id in db.scalars(
-                    select(PracticeSession.retry_of).where(
+            # 실제(live) 다시 도전이 가리키는 예시 세션은 지운 뒤 같은 순번(draw_index)의 새 예시 세션으로 다시 연결한다
+            # — 예시는 항상 계획 수만큼(중복 집계 없음), retry_of는 NULL이 되지 않는다
+            # (T-97, 사용자 결정 2026-11-15 "새 예시로 다시 연결 (추천)" — PR #27 팀원 리뷰 P2 ①)
+            old_demo = PracticeSession.__table__.alias("old_demo")
+            relinks = [
+                (live_id, draw_index)
+                for live_id, draw_index in db.execute(
+                    select(PracticeSession.id, old_demo.c.draw_index)
+                    .join(old_demo, PracticeSession.retry_of == old_demo.c.id)
+                    .where(
                         PracticeSession.child_id == child_id,
                         PracticeSession.origin != DEMO_ORIGIN,
-                        PracticeSession.retry_of.is_not(None),
+                        old_demo.c.origin == DEMO_ORIGIN,
                     )
                 )
             ]
-            old_ids = [
-                session_id
-                for session_id in db.scalars(
+            if relinks:
+                db.execute(
+                    update(PracticeSession)
+                    .where(PracticeSession.id.in_([live_id for live_id, _ in relinks]))
+                    .values(retry_of=None)
+                )
+            old_ids = list(
+                db.scalars(
                     select(PracticeSession.id).where(
                         PracticeSession.child_id == child_id, PracticeSession.origin == DEMO_ORIGIN
                     )
                 )
-                if session_id not in set(referenced_by_live)
-            ]
+            )
             if old_ids:
                 db.execute(delete(CueResult).where(CueResult.session_id.in_(old_ids)))
                 db.execute(delete(PracticeTurn).where(PracticeTurn.session_id.in_(old_ids)))
@@ -100,6 +109,7 @@ class SqlAlchemyDemoSeedRepository:
                 )
             )
 
+            new_by_draw_index: dict[int, UUID] = {}
             for item in plan.sessions:
                 session = PracticeSession(
                     child_id=child_id,
@@ -124,6 +134,7 @@ class SqlAlchemyDemoSeedRepository:
                 )
                 db.add(session)
                 db.flush()
+                new_by_draw_index[item.draw_index] = session.id
                 db.add(
                     PracticeTurn(
                         session_id=session.id,
@@ -147,6 +158,11 @@ class SqlAlchemyDemoSeedRepository:
                             recorded_at=item.ended_at,
                         )
                     )
+            for live_id, draw_index in relinks:
+                # 계획에 같은 순번이 없으면(계획이 바뀐 경우) 연결 없음으로 둔다 — 지운 행을 가리키지 않게
+                new_target = new_by_draw_index.get(draw_index) if draw_index is not None else None
+                if new_target is not None:
+                    db.execute(update(PracticeSession).where(PracticeSession.id == live_id).values(retry_of=new_target))
             for notice in plan.notices:
                 db.add(
                     GuardianNotice(

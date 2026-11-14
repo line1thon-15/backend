@@ -332,41 +332,65 @@ def test_attach_seed_adds_records_to_given_child_and_keeps_live_rows(env):
     assert_demo_growth(body, previous_end="2026-11-06", today="2026-11-13")
 
 
-def test_reseed_keeps_demo_session_referenced_by_live_retry(env):
-    """T-97 — 실제(live) 다시 도전이 가리키는 예시 세션은 재적재 때 지우지 않는다
-    (사용자 결정 2026-11-14 "연결된 예시는 남기기 (추천)"). 나머지 예시 행은 평소대로 교체."""
-    client = env.client()
-    child_id, _ = register_family(client)
-    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+def add_live_retry_of_first_demo(env: Env, child_id: UUID) -> tuple[UUID, UUID, int, str]:
+    """가장 오래된 예시 세션을 가리키는 진행 중 live 다시 도전을 만든다 → (live id, 예시 id, draw_index, scenario_id)."""
     with env.session_factory.begin() as db:
         referenced = db.scalars(
             select(PracticeSession).where(PracticeSession.origin == "demo_seed").order_by(PracticeSession.started_at)
         ).first()
-        referenced_id = referenced.id
-        referenced_turns = db.scalar(select(func.count()).select_from(PracticeTurn).where(PracticeTurn.session_id == referenced_id))
-        referenced_cues = db.scalar(select(func.count()).select_from(CueResult).where(CueResult.session_id == referenced_id))
         live = PracticeSession(
-            child_id=UUID(child_id), mode="retry", area="scam", subtype=None,
+            child_id=child_id, mode="retry", area="scam", subtype=None,
             scenario_id=referenced.scenario_id, is_normal=False, target_cue_ids=[], variant={},
             scenario_title="t", child_setup="s", ai_role_name="r", status="in_progress",
-            origin="live", started_at=NOW - timedelta(minutes=5), ended_at=None, retry_of=referenced_id,
+            origin="live", started_at=NOW - timedelta(minutes=5), ended_at=None, retry_of=referenced.id,
         )
         db.add(live)
         db.flush()
-        live_id = live.id
+        return live.id, referenced.id, referenced.draw_index, referenced.scenario_id
+
+
+def test_reseed_relinks_live_retry_to_new_demo_session(env):
+    """T-97 — 재적재 때 예시 행은 모두 교체하고, 실제(live) 다시 도전의 retry_of는 같은 순번(draw_index)의
+    새 예시 세션으로 옮긴다(사용자 결정 2026-11-15 "새 예시로 다시 연결 (추천)" — PR #27 팀원 리뷰 P2 ①).
+    예시는 항상 8개(중복 집계 없음), retry_of는 NULL이 되지 않는다."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, old_id, draw_index, scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
 
     seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
 
     with env.session_factory() as db:
-        assert db.get(PracticeSession, live_id).retry_of == referenced_id
-        kept = db.get(PracticeSession, referenced_id)
-        assert kept is not None and kept.origin == "demo_seed"
-        assert db.scalar(select(func.count()).select_from(PracticeTurn).where(PracticeTurn.session_id == referenced_id)) == referenced_turns
-        assert db.scalar(select(func.count()).select_from(CueResult).where(CueResult.session_id == referenced_id)) == referenced_cues
+        assert db.get(PracticeSession, old_id) is None
+        new_target = db.get(PracticeSession, db.get(PracticeSession, live_id).retry_of)
+        assert new_target is not None
+        assert (new_target.origin, new_target.draw_index, new_target.scenario_id) == ("demo_seed", draw_index, scenario_id)
         demo_count = db.scalar(
             select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
         )
-    assert demo_count == 8 + 1  # 새로 넣은 8개 + 남긴 1개
+    assert demo_count == 8
+
+
+def test_reseed_with_live_retry_keeps_growth_and_report_counts(env):
+    """PR #27 팀원 리뷰 P2 ① 회귀 — live 다시 도전이 있어도 재적재 뒤 Y8 성장·G3 리포트 값은 처음 적재와 같다."""
+    account = load_demo_account()
+    result = seed_fixed_account(env.repository(), CONTENT, account, NOW)
+    add_live_retry_of_first_demo(env, result.child_id)
+
+    seed_fixed_account(env.repository(), CONTENT, account, NOW)
+
+    child = env.client()
+    login_child(child, account.link_code, account.pin)
+    growth = child.get("/api/v1/me/growth")
+    assert growth.status_code == 200, growth.text
+    assert_demo_growth(growth.json(), previous_end="2026-11-06", today="2026-11-13")
+
+    guardian = env.client()
+    login_guardian(guardian, account.guardian_email, account.guardian_password)
+    report = guardian.get(f"/api/v1/children/{result.child_id}/report")
+    assert report.status_code == 200, report.text
+    scam = next(a for a in report.json()["areas"] if a["area"] == "scam")
+    assert scam["practice_count"] == 8
 
 
 def test_reseed_without_live_references_still_replaces_all_demo_rows(env):
