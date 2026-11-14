@@ -18,6 +18,7 @@ from app.api.me import router as me_router
 from app.api.onboarding import router as onboarding_router
 from app.api.practice import router as practice_router
 from app.api.report import router as report_router
+from app.api.trusted_contact import router as trusted_contact_router
 from app.ai_client.factory import build_practice_ai, build_summary_ai
 from app.ai_client.ports import PracticeAI, SummaryAI
 from app.content.loader import AREA_IDS
@@ -38,6 +39,7 @@ from app.repositories.db_health import SqlAlchemyDatabaseProbe
 from app.repositories.guardian_report import SqlAlchemyGuardianReportRepository
 from app.repositories.onboarding import SqlAlchemyOnboardingRepository
 from app.repositories.practice import SqlAlchemyPracticeRepository
+from app.repositories.trusted_contact_notice import SqlAlchemyTrustedContactNoticeRepository
 from app.services.auth import AuthService
 from app.services.badges import BadgeService
 from app.services.child_views import ChildViewsService
@@ -47,6 +49,7 @@ from app.services.guardian_report import GuardianReportService
 from app.services.health import HealthService
 from app.services.onboarding import OnboardingService
 from app.services.practice import PracticeService
+from app.services.trusted_contact import TrustedContactEventService
 
 API_PREFIX = "/api/v1"
 logger = logging.getLogger(__name__)
@@ -243,6 +246,10 @@ def create_app(
         cue_cards={clue_id: (clue.name, clue.description) for clue_id, clue in content.clues.items()},
         metric_labels=metric_labels,
     )
+    # 믿는 사람 연락 기록 A14 (T-40) — guardian_notices에 trusted_contact 한 행, 시각은 같은 시계
+    app.state.trusted_contact_event_service = TrustedContactEventService(
+        SqlAlchemyTrustedContactNoticeRepository(session_factory), clock=clock
+    )
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
@@ -264,6 +271,7 @@ def create_app(
     app.include_router(practice_router, prefix=API_PREFIX)
     app.include_router(report_router, prefix=API_PREFIX)
     app.include_router(me_router, prefix=API_PREFIX)
+    app.include_router(trusted_contact_router, prefix=API_PREFIX)
     return app
 
 
