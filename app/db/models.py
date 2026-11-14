@@ -219,7 +219,9 @@ class PracticeSession(Base):
         nullable=True,
     )
     draw_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # 1차 힌트 없음(#104 ④) — HINT_MAX는 PRD OQ 14 미정이라 값을 채우지 않는다(null)
+    # 목표 단서별 힌트 단계의 최댓값(T-36 — 2026-11-14 사용자 결정 "가장 큰 값", HINT_MAX 잠정 2 = PRD OQ 14).
+    # 목표 단서가 없으면 null. 1차 AI 계약에 힌트가 없어(#104 ④) 저장만 하고 AI에 보내지 않는다
+
     hint_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     normal_outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
