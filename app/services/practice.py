@@ -177,11 +177,12 @@ class PracticeService:
             child_id, [candidate.scenario_id for candidate in candidates]
         )
         previous = {sid: AxisPair(platform=p, tone=t) for sid, (p, t) in previous_pairs.items()}
+        preferred_platforms = self._preferred_platforms(profile.favorite_apps)
         draw = draw_scenario(
             candidates,
             grade=profile.grade,
             previous=previous,
-            preferred_platforms=self._preferred_platforms(profile.favorite_apps),
+            preferred_platforms=preferred_platforms,
             rng=self._rng_factory(),
             weak_cue_ids=self._weak_cue_ids(child_id),
         )
@@ -197,6 +198,8 @@ class PracticeService:
             clue_ids=tuple(clue.id for clue in entry.scenario.clues),
             axes=draw.axes,
             previous=previous_pairs.get(draw.scenario_id),
+            candidate=next(c for c in candidates if c.scenario_id == draw.scenario_id),
+            preferred_platforms=preferred_platforms,
             retry_of=None,
             draw_index=self._repository.count_new_draws(child_id) + 1,
         )
@@ -218,16 +221,18 @@ class PracticeService:
             raise _no_scenario()
         axes_source = entry.variation_axes
         previous = (original.variant["platform"], original.variant["tone"])
+        candidate = ScenarioCandidate(
+            scenario_id=original.scenario_id,
+            min_grade=None,  # 이미 출제된 시나리오 — 학년 제한은 첫 출제 때 적용됨
+            platforms=tuple(axes_source.platform),
+            tones=tuple(axes_source.tone),
+            contexts=tuple(axes_source.context),
+        )
+        preferred_platforms = self._preferred_platforms(profile.favorite_apps)
         axes = choose_variant_axes(
-            ScenarioCandidate(
-                scenario_id=original.scenario_id,
-                min_grade=None,  # 이미 출제된 시나리오 — 학년 제한은 첫 출제 때 적용됨
-                platforms=tuple(axes_source.platform),
-                tones=tuple(axes_source.tone),
-                contexts=tuple(axes_source.context),
-            ),
+            candidate,
             previous=AxisPair(platform=previous[0], tone=previous[1]),
-            preferred_platforms=self._preferred_platforms(profile.favorite_apps),
+            preferred_platforms=preferred_platforms,
             rng=self._rng_factory(),
         )
         if axes is None:
@@ -240,9 +245,60 @@ class PracticeService:
             clue_ids=original.target_cue_ids,
             axes=axes,
             previous=previous,
+            candidate=candidate,
+            preferred_platforms=preferred_platforms,
             retry_of=original.session_id,
             draw_index=None,  # 다시 도전은 새 출제 순번을 쓰지 않는다
         )
+
+    def _request_variant(
+        self,
+        *,
+        scenario_id: str,
+        clue_ids: tuple[str, ...],
+        axes: VariantAxes,
+        previous: tuple[str, str] | None,
+        candidate: ScenarioCandidate,
+        preferred_platforms: frozenset[str],
+    ) -> Variant:
+        """variant 요청 + VA1~VA4 검증. 실패면 `AIUnavailableError`.
+
+        T-95 (DECISIONS #133, ADR-0019 — 2026-11-14 사용자 결정 "백엔드가 다른 변형 요청 (추천)"): AI가 변형에
+        실패해 돌려준 원본(fallback)이 직전 세션과 같은 platform·tone이면, 직전·첫 응답과 다른 조합(첫 선택과 같은
+        규칙, context도 다시 고름)으로 1회만 다시 요청한다. 재요청 응답이 fallback이면 VA4 없이 채택하고, 고를 조합이
+        남지 않았으면 재요청 없이 원본으로 진행한다(같은 모습 허용 — PRD F-12 [2026-11-14 예외]).
+        model 응답은 첫 요청·재요청 모두 기존 VA3·VA4 그대로. AI 오류는 재요청하지 않고 그대로 올린다(503).
+        """
+        request = VariantRequest(scenario_id=scenario_id, platform=axes.platform, tone=axes.tone, context=axes.context)
+        response = self._ai.variant(request)
+        if not check.is_fallback_repeat(response, previous=previous):
+            check.check_variant(response, request=request, scenario_clue_ids=clue_ids, previous=previous)
+            return response.variant
+
+        second_axes = choose_variant_axes(
+            candidate,
+            previous=AxisPair(platform=previous[0], tone=previous[1]) if previous is not None else None,
+            preferred_platforms=preferred_platforms,
+            rng=self._rng_factory(),
+            # 첫 응답 조합만 뺀다 — 첫 요청 조합은 빼지 않는다(다시 뽑힐 수 있음, ADR-0019 결정 4)
+            exclude=frozenset({AxisPair(platform=response.variant.platform, tone=response.variant.tone)}),
+        )
+        if second_axes is not None:
+            request = VariantRequest(
+                scenario_id=scenario_id,
+                platform=second_axes.platform,
+                tone=second_axes.tone,
+                context=second_axes.context,
+            )
+            response = self._ai.variant(request)
+        check.check_variant(
+            response,
+            request=request,
+            scenario_clue_ids=clue_ids,
+            previous=previous,
+            allow_fallback_repeat=True,
+        )
+        return response.variant
 
     def _child_profile(self, child_id: UUID):
         profile = self._repository.get_child_profile(child_id)
@@ -286,25 +342,21 @@ class PracticeService:
         clue_ids: tuple[str, ...],
         axes: VariantAxes,
         previous: tuple[str, str] | None,
+        candidate: ScenarioCandidate,
+        preferred_platforms: frozenset[str],
         retry_of: UUID | None,
         draw_index: int | None,
     ) -> SessionOutput:
         """variant → start → 검증 → 세션·턴 0 저장. AI 실패면 아무것도 저장하지 않는다."""
-        variant_request = VariantRequest(
-            scenario_id=scenario_id,
-            platform=axes.platform,
-            tone=axes.tone,
-            context=axes.context,
-        )
         try:
-            variant_response = self._ai.variant(variant_request)
-            check.check_variant(
-                variant_response,
-                request=variant_request,
-                scenario_clue_ids=clue_ids,
+            variant = self._request_variant(
+                scenario_id=scenario_id,
+                clue_ids=clue_ids,
+                axes=axes,
                 previous=previous,
+                candidate=candidate,
+                preferred_platforms=preferred_platforms,
             )
-            variant = variant_response.variant
             start = self._ai.start(StartRequest(scenario_id=scenario_id, variant=variant))
             check.check_start(start, scenario_clue_ids=clue_ids)
         except AIUnavailableError as exc:

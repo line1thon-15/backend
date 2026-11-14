@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.ai_client.ports import FeedbackCard
+from app.ai_client.ports import AIUnavailableError, FeedbackCard
 from app.content.loader import ScenarioEntry
 from app.core.config import Settings
 from app.db.base import Base
@@ -549,16 +549,110 @@ def test_retry_without_other_variant_is_no_scenario_and_result_cannot_retry(env)
     assert env.ai.names() == ["feedback"]
 
 
-def test_retry_fallback_variant_same_as_retry_of_is_503(env):
+# ---- fallback이 직전과 같을 때 (T-95 — DECISIONS #133, ADR-0019, 2026-11-14 사용자 결정 "백엔드가 다른 변형 요청 (추천)") ----
+# 이전 동작(503 AI_UNAVAILABLE)을 바꾼다: 다른 platform·tone으로 1회 재요청, 재요청도 fallback이면 원본으로 진행.
+# 아래 테스트 이름 앞의 ①~⑦은 ADR-0019 "결과"의 최소 테스트 번호.
+
+
+def _fallback_as(pair: tuple[str, str], *, times: int | None = None):
+    """variant 응답을 fallback(원본 = pair)으로 바꾼다. times가 있으면 처음 그 횟수만."""
+    count = {"n": 0}
+
+    def override(_request, response):
+        count["n"] += 1
+        if times is not None and count["n"] > times:
+            return response
+        return response.model_copy(
+            update={
+                "source": "fallback",
+                "variant": response.variant.model_copy(update={"platform": pair[0], "tone": pair[1]}),
+            }
+        )
+
+    return override
+
+
+def test_2_3_retry_fallback_same_as_retry_of_requests_other_variant_once(env):
     env.login_child(grade="H1")
     original_id = env.ended(("correct",))
     original = env.session_row(original_id).variant
-    env.ai.overrides["variant"] = lambda req, res: res.model_copy(
-        update={
-            "source": "fallback",
-            "variant": res.variant.model_copy(update={"platform": original["platform"], "tone": original["tone"]}),
-        }
-    )
+    previous = (original["platform"], original["tone"])
+    env.ai.calls.clear()
+    env.ai.overrides["variant"] = _fallback_as(previous, times=1)  # 재요청에는 model 응답
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 201, response.text
+    assert env.ai.names() == ["variant", "variant", "start"]
+    first, second = env.ai.requests("variant")
+    assert (second.platform, second.tone) != previous
+    assert second.scenario_id == first.scenario_id
+    axes = CONTENT.scenarios[first.scenario_id].variation_axes
+    assert second.platform in axes.platform and second.tone in axes.tone and second.context in axes.context
+    row = env.session_row(response.json()["session_id"])
+    assert (row.variant["platform"], row.variant["tone"]) == (second.platform, second.tone)
+    assert env.ai.requests("start")[0].variant.platform == second.platform
+
+
+def test_4_retry_fallback_again_after_rerequest_proceeds_with_original(env):
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    original = env.session_row(original_id).variant
+    previous = (original["platform"], original["tone"])
+    env.ai.calls.clear()
+    env.ai.overrides["variant"] = _fallback_as(previous)  # 재요청도 fallback(같은 원본)
+    before = env.count(PracticeSession)
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 201, response.text
+    assert env.ai.names() == ["variant", "variant", "start"]
+    assert env.count(PracticeSession) == before + 1
+    row = env.session_row(response.json()["session_id"])
+    assert row.retry_of == UUID(original_id)
+    # 같은 모습 허용 (F-12 '다른 모습'이 깨질 수 있음 — 사용자 결정에 명시)
+    assert (row.variant["platform"], row.variant["tone"]) == previous
+
+
+def test_retry_rerequest_may_reuse_first_request_pair(env):
+    # 첫 요청 조합은 제외하지 않는다(ADR-0019 결정 4) — 남은 조합이 첫 요청 하나뿐이면 그 조합으로 재요청
+    env.login_child(grade="H1")
+    session_id = env.ended(("correct",))
+    scenario_id = env.session_row(session_id).scenario_id
+    env.use_content(narrowed_content(scenario_id))
+    base = ("original_platform", "원래 말투")  # 축 밖의 원본 값(AI base_as_variant)
+    with env.session_factory.begin() as db:
+        row = db.get(PracticeSession, UUID(session_id))
+        row.variant = {**row.variant, "platform": base[0], "tone": base[1]}
+    env.ai.calls.clear()
+    env.ai.overrides["variant"] = _fallback_as(base)
+
+    response = env.retry(session_id)
+
+    assert response.status_code == 201, response.text
+    assert env.ai.names() == ["variant", "variant", "start"]
+    first, second = env.ai.requests("variant")
+    assert (second.platform, second.tone) == (first.platform, first.tone)
+    new_row = env.session_row(response.json()["session_id"])
+    assert (new_row.variant["platform"], new_row.variant["tone"]) == base
+
+
+def test_5_retry_rerequest_failure_is_503_and_saves_nothing(env):
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    original = env.session_row(original_id).variant
+    previous = (original["platform"], original["tone"])
+    fallback = _fallback_as(previous)
+    calls = {"n": 0}
+
+    def fail_second(request, response):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise AIUnavailableError("variant failed")
+        return fallback(request, response)
+
+    env.ai.overrides["variant"] = fail_second
+    env.ai.calls.clear()
     before = env.count(PracticeSession)
 
     response = env.retry(original_id)
@@ -566,6 +660,85 @@ def test_retry_fallback_variant_same_as_retry_of_is_503(env):
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "AI_UNAVAILABLE"
     assert env.count(PracticeSession) == before
+    assert calls["n"] == 2  # 오류 재시도 없음
+    assert "start" not in env.ai.names()
+
+
+def test_retry_first_request_failure_is_not_rerequested(env):
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    env.ai.calls.clear()
+    env.ai.fail.add("variant")
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 503
+    assert env.ai.names() == ["variant"]
+
+
+def test_1_retry_without_fallback_calls_variant_once(env):
+    # ① 재요청 조건이 아니면 variant 1회 (직전 없음은 tests/integration/test_practice_sessions.py 새 출제 쪽)
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    env.ai.calls.clear()
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 201
+    assert env.ai.names() == ["variant", "start"]
+
+
+def test_6_retry_first_model_va3_violation_is_503_without_rerequest(env):
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    env.ai.calls.clear()
+    env.ai.overrides["variant"] = lambda req, res: res.model_copy(
+        update={"variant": res.variant.model_copy(update={"platform": "elsewhere"})}
+    )
+    before = env.count(PracticeSession)
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 503
+    assert env.ai.names() == ["variant"]
+    assert env.count(PracticeSession) == before
+
+
+def test_7_retry_fallback_different_from_retry_of_is_adopted_without_rerequest(env):
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    env.ai.calls.clear()
+    base = ("original_platform", "원래 말투")  # 직전(축 안의 값)과 다른 원본
+    env.ai.overrides["variant"] = _fallback_as(base)
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 201, response.text
+    assert env.ai.names() == ["variant", "start"]
+    row = env.session_row(response.json()["session_id"])
+    assert (row.variant["platform"], row.variant["tone"]) == base
+
+
+def test_retry_rerequest_model_violation_is_still_503(env):
+    # 재요청의 model 응답은 기존 VA3 그대로 — 요청과 다른 값이면 503
+    env.login_child(grade="H1")
+    original_id = env.ended(("correct",))
+    original = env.session_row(original_id).variant
+    previous = (original["platform"], original["tone"])
+    fallback = _fallback_as(previous, times=1)
+
+    def model_mismatch_second(request, response):
+        response = fallback(request, response)
+        if response.source == "model":
+            return response.model_copy(update={"variant": response.variant.model_copy(update={"platform": "elsewhere"})})
+        return response
+
+    env.ai.overrides["variant"] = model_mismatch_second
+
+    response = env.retry(original_id)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "AI_UNAVAILABLE"
 
 
 @pytest.mark.parametrize("failing", ["variant", "start"])

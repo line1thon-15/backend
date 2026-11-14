@@ -183,3 +183,49 @@ def test_draw_uses_previous_of_same_scenario():
     draw = draw_scenario(candidates, grade="H1", previous=previous, preferred_platforms=frozenset(), rng=random.Random(0))
 
     assert draw.axes.platform == "p2"
+
+
+# ---- fallback 재요청 (T-95 — 2026-11-14 사용자 결정 "백엔드가 다른 변형 요청 (추천)") ----------------
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_excluded_pairs_are_not_chosen(seed):
+    cand = candidate(platforms=("p1", "p2"), tones=("t1", "t2"))
+
+    axes = choose_variant_axes(
+        cand,
+        previous=AxisPair(platform="p1", tone="t1"),
+        preferred_platforms=frozenset(),
+        rng=random.Random(seed),
+        exclude=frozenset({AxisPair(platform="p1", tone="t2"), AxisPair(platform="p2", tone="t1")}),
+    )
+
+    assert (axes.platform, axes.tone) == ("p2", "t2")
+
+
+def test_excluding_every_remaining_pair_returns_none():
+    cand = candidate(platforms=("p1",), tones=("t1", "t2"))
+
+    axes = choose_variant_axes(
+        cand,
+        previous=AxisPair(platform="p1", tone="t1"),
+        preferred_platforms=frozenset(),
+        rng=random.Random(0),
+        exclude=frozenset({AxisPair(platform="p1", tone="t2")}),
+    )
+
+    assert axes is None
+
+
+def test_exclude_outside_axes_changes_nothing():
+    cand = candidate(platforms=("p1",), tones=("t1",))
+
+    axes = choose_variant_axes(
+        cand,
+        previous=None,
+        preferred_platforms=frozenset(),
+        rng=random.Random(0),
+        exclude=frozenset({AxisPair(platform="original", tone="원래 말투")}),
+    )
+
+    assert (axes.platform, axes.tone) == ("p1", "t1")
