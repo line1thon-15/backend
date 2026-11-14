@@ -32,4 +32,4 @@ class AIServiceSettings(BaseSettings):
     url: str = "http://localhost:8081"  # AI_SERVICE_URL — 기준 URL (경로 /internal/v1/... 는 클라이언트가 붙인다)
     token: SecretStr = Field(min_length=1)  # AI_SERVICE_TOKEN — 시크릿, AI 쪽 AI_INTERNAL_TOKEN과 같은 값
     # AI_SERVICE_TIMEOUT_SECONDS — AI 쪽 Gemini 호출 시간 초과(기본 20초)보다 길어야 한다 (Architecture 권고)
-    timeout_seconds: float = Field(default=30.0, gt=0)
+    timeout_seconds: float = Field(default=30.0, gt=0, allow_inf_nan=False)  # inf·nan 거부 (T-94 리뷰 #1)

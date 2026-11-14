@@ -1,5 +1,6 @@
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from random import Random
@@ -150,7 +151,16 @@ def create_app(
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
 
-    app = FastAPI()
+    # create_app이 직접 만든 자원만 종료 시 닫는다 — 주입받은 것은 주입한 쪽이 관리 (T-94 리뷰 #3)
+    owned_closers: list[Callable[[], None]] = []
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        for close in owned_closers:
+            close()
+
+    app = FastAPI(lifespan=lifespan)
     app.state.settings = settings
     app.state.content = content
     app.state.engine = engine
@@ -181,6 +191,10 @@ def create_app(
                 for scenario_id, entry in content.scenarios.items()
             },
         )
+        # HttpPracticeAI는 httpx 커넥션 풀을 가진다 — 앱 종료 시 닫는다 (Fake에는 close가 없다)
+        close_ai = getattr(practice_ai, "close", None)
+        if callable(close_ai):
+            owned_closers.append(close_ai)
     app.state.practice_service = PracticeService(
         SqlAlchemyPracticeRepository(session_factory),
         practice_ai,

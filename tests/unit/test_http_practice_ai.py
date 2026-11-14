@@ -6,6 +6,7 @@
 """
 
 import json
+import logging
 from pathlib import Path
 
 import httpx
@@ -319,3 +320,83 @@ def test_from_settings_uses_configured_values():
     assert str(seen[0].url) == "http://ai.example:9000/internal/v1/summary"
     assert seen[0].headers["X-Internal-Token"] == "cfg-token"
     assert seen[0].extensions["timeout"]["read"] == 4.0
+
+
+# ---- 리뷰 반영 (2026-11-14 reviewer 권고 #1·#4) ------------------------------
+
+
+@pytest.mark.parametrize("timeout", ["inf", "-inf", "nan", "Infinity"])
+def test_non_finite_timeout_setting_is_rejected(monkeypatch, timeout):
+    # #1: inf는 gt=0을 통과해 호출 시 OverflowError(→ 500)가 났다
+    monkeypatch.setenv("AI_SERVICE_TOKEN", "env-token")
+    monkeypatch.setenv("AI_SERVICE_TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValidationError):
+        AIServiceSettings(_env_file=None)
+
+
+@pytest.mark.parametrize("timeout_seconds", [float("inf"), float("nan")])
+def test_non_finite_timeout_is_rejected_by_client(timeout_seconds):
+    with pytest.raises(ValueError):
+        make_ai(lambda request: httpx.Response(200, json={}), timeout_seconds=timeout_seconds)
+
+
+def _raise_plain(exc):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    return handler
+
+
+OTHER_HTTPX_FAILURES = [
+    ("unsupported_protocol", _raise(httpx.UnsupportedProtocol)),
+    ("decoding_error", _raise(httpx.DecodingError)),
+    ("write_timeout", _raise(httpx.WriteTimeout)),
+    ("pool_timeout", _raise(httpx.PoolTimeout)),
+    ("read_error", _raise(httpx.ReadError)),
+    ("proxy_error", _raise(httpx.ProxyError)),
+    ("stream_closed", _raise_plain(httpx.StreamClosed())),
+    ("invalid_url", _raise_plain(httpx.InvalidURL("bad url"))),
+]
+
+
+@pytest.mark.parametrize("handler", [f[1] for f in OTHER_HTTPX_FAILURES], ids=[f[0] for f in OTHER_HTTPX_FAILURES])
+def test_other_httpx_failures_become_ai_unavailable(handler):
+    with pytest.raises(AIUnavailableError):
+        make_ai(handler).variant(sample_request("practice.variant", VariantRequest))
+
+
+SECRET_CHILD_TEXT = "아이비밀답변-T94"
+
+
+def _turn_request_with_child_text() -> TurnRequest:
+    body = load_sample("practice.turn.request")
+    body["messages"][-1]["text"] = SECRET_CHILD_TEXT
+    return TurnRequest.model_validate(body)
+
+
+LOGGED_FAILURES = [
+    ("http_500_echoing_request", lambda request: httpx.Response(500, content=request.content)),
+    ("http_401", lambda request: httpx.Response(401, json={"error": "unauthorized"})),
+    ("schema_mismatch_echoing_request", lambda request: httpx.Response(200, content=request.content)),
+    ("body_not_json", lambda request: httpx.Response(200, text=f"<html>{SECRET_CHILD_TEXT}</html>")),
+    ("timeout", _raise(httpx.ReadTimeout)),
+    ("connect_error", _raise(httpx.ConnectError)),
+]
+
+
+@pytest.mark.parametrize("handler", [f[1] for f in LOGGED_FAILURES], ids=[f[0] for f in LOGGED_FAILURES])
+def test_failure_logs_do_not_contain_token_or_request_body(caplog, handler):
+    # #4: 로그에는 경로·상태·오류 종류만 — 토큰·아이 답(요청 본문)·응답 본문 금지 (Architecture "로깅")
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(AIUnavailableError) as excinfo:
+        make_ai(handler).turn(_turn_request_with_child_text())
+
+    assert caplog.records, "실패는 경고 로그 1건을 남겨야 한다"
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "/internal/v1/practice/turn" in logged
+    for secret in (TOKEN, SECRET_CHILD_TEXT):
+        assert secret not in logged
+        assert secret not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None

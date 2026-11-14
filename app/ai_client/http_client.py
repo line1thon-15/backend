@@ -9,6 +9,7 @@ httpx는 이 파일에서만 import한다 (tests/unit/test_import_boundaries.py 
 """
 
 import json
+import math
 import logging
 from typing import TypeVar
 from uuid import uuid4
@@ -54,8 +55,8 @@ class HttpPracticeAI:
     ) -> None:
         if not token or not token.strip():
             raise ValueError("AI service token must not be blank")
-        if not timeout_seconds > 0:
-            raise ValueError("AI service timeout must be positive")
+        if not (math.isfinite(timeout_seconds) and timeout_seconds > 0):
+            raise ValueError("AI service timeout must be a positive finite number")
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
             timeout=httpx.Timeout(timeout_seconds),
@@ -113,7 +114,8 @@ class HttpPracticeAI:
             )
         except httpx.TimeoutException as exc:
             raise self._unavailable(path, request_id, f"timeout ({type(exc).__name__})") from None
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as exc:
+            # HTTPError 밖의 httpx 예외(잘못된 URL·스트림 오류)도 AI 실패로 본다 (T-94 리뷰 #1·#4)
             raise self._unavailable(path, request_id, f"transport error ({type(exc).__name__})") from None
 
         if not response.is_success:
