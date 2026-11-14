@@ -31,13 +31,13 @@ bash scripts/init.sh "프로젝트명"
 
 느린학습자(경계선 지능) 청소년이 위험하거나 어려운 상황을 AI와 안전하게 반복 연습하도록 돕는 반응형 웹 서비스의 **백엔드 저장소**다 (서비스명 미정, 근거: [docs/PRD.md](docs/PRD.md) 머리글·한 줄 정의). Python + FastAPI 백엔드이며 프론트·AI 서비스는 별도 저장소다([Architecture](docs/Architecture.md) 참조).
 
-### 현재 상태 (2026-11-11)
+### 현재 상태 (2026-11-14)
 
-- T-01(백엔드 테스트 하네스)이 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. **기능 API 중 연습 세션·결과 API(T-15·T-16, 아래)만 있다.**
+- T-01(백엔드 테스트 하네스)이 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. [해소됨 — 이후 온보딩(`app/api/onboarding.py`)·성장·홈(`app/api/me.py`)·보호자 리포트(`app/api/report.py`) API가 추가됨, 아래 항목 참조] 기능 API 중 연습 세션·결과 API(T-15·T-16, 아래)만 있다.
 - T-15(연습 세션 API)가 구현돼 있다(리뷰 치명 0, QA 408 passed — `docs/Tasks.md` T-15 행 인용): `POST /api/v1/practice/sessions`(A15, 영역별 출제), `GET /api/v1/practice/sessions/{session_id}`(A16), `POST /api/v1/practice/sessions/{session_id}/turns`(A17, 답 제출·종료 판정). DB 마이그레이션 `20261112_04`(`practice_sessions`·`practice_turns`·`cue_results`). 제한: A15는 `mode:"area"`만 받고, 지금 콘텐츠로는 고등학생만 출제되며, 공개 영역 값은 `scam`·`identity_lending`·`friend_pressure`다. 자세한 내용과 미검증 항목은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-16(연습 결과 API·다시 도전)이 구현돼 있다(리뷰 치명 0, QA 480 passed — `docs/Tasks.md` T-16 행 인용): `GET /api/v1/practice/sessions/{session_id}/result`(A18, 찾은/놓친 단서 카드와 `can_retry`), `POST /api/v1/practice/sessions`에 `mode:"retry"`+`retry_of`(A15 다시 도전). 카드 색 값은 T-89에서 확정돼(K1 green / K2 yellow / K3 green / K4 green / K5 yellow, DECISIONS #120) A18이 기본 설정에서 동작한다(485 passed, 인용). 제한: 정상 상황 결과 조회는 1차 범위 밖이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
-- T-94(실제 AI 연결 `HttpPracticeAI`)·T-36(약점 우선 출제·힌트 단계)이 별도 작업 트리에 구현돼 있다(2026-11-14, 통과 수 미확인). `AI_CLIENT=http`로 실제 AI 서버를 호출하는 방법은 아래 "실제 AI 서버 연결"이다. 제한: 실제 AI 서버 연결은 미검증이고, 1차 화면의 `hint`는 계속 null이다(`hint_level`은 저장만). 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
-- T-92(연습 API A15~A18 보호자 세션 403 `FORBIDDEN_ROLE`, T-15·T-16 재작업)이 구현돼 있다(692 passed — 인용): 유효한 보호자 세션으로 호출하면 403 `FORBIDDEN_ROLE`(저장 0건·AI 호출 0회)이고, 세션이 없거나 무효·만료면 401 `UNAUTHENTICATED`를 유지한다. 온보딩 A12는 백엔드 A 담당이라 아직 401이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-94(실제 AI 연결 `HttpPracticeAI`, PR #25)·T-36(약점 우선 출제·힌트 단계, PR #26)이 dev에 병합돼 있다(2026-11-14; QA T-94 776 passed·T-36 740 passed — `docs/Tasks.md` T-94·T-36 행 인용). `AI_CLIENT=http`로 실제 AI 서버를 호출하는 방법은 아래 "실제 AI 서버 연결"이다. 실제 AI 서버(ai dev e82ea66, `AI_PROVIDER=fake`) 연결은 메인 세션이 확인했다(연습 시작 201 → 답 4회 200 → 결과 200, 잘못된 토큰은 503). 제한: Gemini 제공자 경로와 summary 호출(T-76)은 미확인이고, 다시 도전은 AI 대체 응답(fallback) 시 503이다(T-95 진행 중). 1차 화면의 `hint`는 계속 null이다(`hint_level`은 저장만). 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-92(연습 API A15~A18 보호자 세션 403 `FORBIDDEN_ROLE`, T-15·T-16 재작업)이 구현돼 있다(692 passed — 인용): 유효한 보호자 세션으로 호출하면 403 `FORBIDDEN_ROLE`(저장 0건·AI 호출 0회)이고, 세션이 없거나 무효·만료면 401 `UNAUTHENTICATED`를 유지한다. [해소됨 — 온보딩 A12 보호자 세션은 PR #21(c140864·9d2bc18, 2026-11-13 병합)로 403 `FORBIDDEN_ROLE`] 온보딩 A12는 백엔드 A 담당이라 아직 401이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-91(A17 동시 답 충돌·늦은 중복 답 방지, T-15 재작업)이 구현돼 있다(677 passed — 인용): `POST /api/v1/practice/sessions/{session_id}/turns` 요청이 `{choice_id, turn_index}`이고 둘 다 필수다. 현재 턴이 아닌 `turn_index`는 409 `TURN_ALREADY_ANSWERED`, 동시 충돌은 세션 상태에 따라 `TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`, `turn_index` 누락·음수·비정수는 422 `VALIDATION_ERROR`다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-90(아이용 성장·홈 API)이 구현돼 있다(656 passed — 인용): `GET /api/v1/me/growth`(A19), `GET /api/v1/me/home`(A13), 보호자 세션은 403. 보호자 리포트 A11 `metrics`도 채워진다. 제한: 기존 아이 API는 보호자 세션에 401(신규 A13·A19만 403), A19 오류 코드 규격이 Architecture에 없다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-45(배지·연속 기록)·T-46(성장 지표 3개·더 연습이 필요한 단서) 계산 계층이 구현돼 있고(공개 API 없음), T-25 보호자 리포트 `GET /api/v1/children/{child_id}/report`(A11)와 `guardian_notices` 테이블(마이그레이션 `20261112_05`)이 있다(통합 638 passed — 인용). 제한: A11 `summary`는 임시값(T-76), PostgreSQL 마이그레이션 미검증. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
@@ -47,8 +47,8 @@ bash scripts/init.sh "프로젝트명"
   2. 새 원본 커밋으로 고정 커밋을 갱신하고 `app/content/data/ai/SOURCE.txt`의 고정 커밋·복사일을 고친다.
   3. `SOURCE.txt`의 SHA-256을 새 값으로 갱신한다(LF 기준 = git blob 내용, `git show <커밋>:<원본 경로> | sha256sum`).
   4. 검증: `.venv/Scripts/python.exe -m pytest` — `tests/unit/test_content_loader.py`의 사본 무결성 테스트(`test_ai_copy_matches_pinned_source_hashes`)가 CRLF→LF 정규화 후 SOURCE.txt 해시와 대조하고, 로더 검증 테스트가 새 콘텐츠의 구조를 확인한다.
-- CI(`.github/workflows/ci.yml`)는 `dev`·`main` 대상 PR에서 pytest를 Fake AI로 돌리도록 작성돼 있다. **GitHub에서 실제로 실행되는지는 아직 확인하지 못했다**(원격 저장소 미연결, 미검증).
-- T-01은 docs/Tasks.md 기준 "완료"다(리뷰·QA 통과, 치명 결함 0건). CI의 GitHub 실제 실행은 원격 저장소 연결 뒤 확인한다.
+- CI(`.github/workflows/ci.yml`, 워크플로 이름 `backend-ci`)는 `dev`·`main` 대상 PR에서 pytest를 Fake AI로 돌린다. [해소됨 — GitHub Actions에서 실제로 실행되고 있다: `gh run list --repo line1thon-15/backend --limit 5`로 최근 5건 모두 success 확인(2026-11-14, 예: `feat/T-94-http-practice-ai` PR 실행 14:20Z, `docs/T-31-status` PR 실행 14:41Z). 이전: "GitHub에서 실제로 실행되는지는 아직 확인하지 못했다(원격 저장소 미연결, 미검증)"]
+- T-01은 docs/Tasks.md 기준 "완료"다(리뷰·QA 통과, 치명 결함 0건). [해소됨 — CI의 GitHub 실제 실행은 위 항목에서 확인함]
 
 ## 구조
 
@@ -122,7 +122,8 @@ AI_SERVICE_TIMEOUT_SECONDS=30               # 기본 30, 0보다 큰 유한한 �
 ```
 
 - 호출 실패(시간 초과·연결 실패·비2xx·응답 형식 불일치)는 `AIUnavailableError`로 처리된다.
-- 한계: 실제 AI 서버와의 연결은 아직 검증하지 못했다(미검증). AI 쪽 정상 상황 응답 형태가 백엔드 포트와 달라 1차에서는 정상 상황 출제가 꺼져 있다.
+- 확인된 것: AI 서버(ai dev e82ea66, `AI_PROVIDER=fake`)에 `AI_CLIENT=http`로 연습 흐름(시작 201 → 답 4회 200 → 결과 200)을 확인했고(`.artifacts/verification/T-94/main-20261114-live-ai-2/`, 종료 코드 0), 잘못된 토큰은 503이다(`main-20261114-live-ai-wrong-token/`). [해소됨 — "실제 AI 서버와의 연결은 아직 검증하지 못했다(미검증)"]
+- 한계: Gemini 제공자 경로와 summary 호출(T-76)은 아직 확인하지 못했다(미검증). 다시 도전(`mode:"retry"`)은 AI 대체 응답(fallback) 시 503이다(T-95 진행 중, 재현 `main-20261114-live-ai-retry/`). AI 쪽 정상 상황 응답 형태가 백엔드 포트와 달라 1차에서는 정상 상황 출제가 꺼져 있다.
 
 ## 시연 예시 데이터 적재 (T-67)
 
@@ -140,7 +141,7 @@ export DEMO_CHILD_PIN=<PIN>
 .venv/Scripts/python.exe -m app.demo.seed attach --child-id <child UUID> --database-url "$URL"
 ```
 
-- 시연 당일 다시 실행하는 것을 권장한다 — 날짜가 실행 시점 기준 상대값이라 7일 창이 시연일에 맞춰진다. 다시 실행해도 그 아이의 `demo_seed` 행만 새로 바뀌고 중복이 생기지 않는다(`live` 행 유지).
+- 시연 당일 다시 실행하는 것을 권장한다 — 날짜가 실행 시점 기준 상대값이라 7일 창이 시연일에 맞춰진다. 다시 실행해도 그 아이의 `demo_seed` 행만 새로 바뀌고 중복이 생기지 않는다(`live` 행 유지). 단, 실제(`live`) 다시 도전이 가리키는 예시 세션은 지우지 않고 남긴다.
 - 시연 계정이 이미 있으면 비밀번호·PIN을 갱신하지 않는다(환경 변수 값은 새 계정을 만들 때만 쓰인다).
 - 값을 명령줄 앞에 직접 쓰면(`DEMO_GUARDIAN_PASSWORD=... 명령`) 셸 히스토리에 남으니 위처럼 `export`를 권장한다. 환경 변수가 없거나 형식이 틀리면 종료 코드 2로 끝난다. 실제 값은 저장소·문서에 적지 않는다([.env.example](.env.example)은 플레이스홀더만).
 - 제한: 시연 계정에서 "처음 본 상황에서 찾은 신호"는 콘텐츠 시나리오가 2개라 "비교 불가"로 보이고, 시연 아이는 첫 설정이 미완료 상태다(사용자 결정). 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
