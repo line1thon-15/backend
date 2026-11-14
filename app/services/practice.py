@@ -178,13 +178,15 @@ class PracticeService:
         )
         previous = {sid: AxisPair(platform=p, tone=t) for sid, (p, t) in previous_pairs.items()}
         preferred_platforms = self._preferred_platforms(profile.favorite_apps)
+        # 종료 세션 기록은 한 번만 읽어 약점 우선 출제와 힌트 단계에 같이 쓴다 (T-96 — PR #26 리뷰 P2)
+        ended_outcomes = self._ended_cue_outcomes(child_id)
         draw = draw_scenario(
             candidates,
             grade=profile.grade,
             previous=previous,
             preferred_platforms=preferred_platforms,
             rng=self._rng_factory(),
-            weak_cue_ids=self._weak_cue_ids(child_id),
+            weak_cue_ids=self._weak_cue_ids(ended_outcomes),
         )
         if draw is None:
             raise _no_scenario()
@@ -200,6 +202,7 @@ class PracticeService:
             previous=previous_pairs.get(draw.scenario_id),
             candidate=next(c for c in candidates if c.scenario_id == draw.scenario_id),
             preferred_platforms=preferred_platforms,
+            ended_outcomes=ended_outcomes,
             retry_of=None,
             draw_index=self._repository.count_new_draws(child_id) + 1,
         )
@@ -313,16 +316,18 @@ class PracticeService:
             for o in self._repository.ended_cue_outcomes(child_id)
         ]
 
-    def _weak_cue_ids(self, child_id: UUID) -> frozenset[str]:
+    @staticmethod
+    def _weak_cue_ids(ended_outcomes: Sequence[CueOutcome]) -> frozenset[str]:
         """약점 우선 출제(F-18 ①, T-36)의 약점 단서 — Y8·G3와 같은 공통 규칙(DECISIONS #122)."""
-        return frozenset(select_weak_cues(self._ended_cue_outcomes(child_id)))
+        return frozenset(select_weak_cues(ended_outcomes))
 
-    def _session_hint_level(self, child_id: UUID, clue_ids: Sequence[str]) -> int | None:
+    @staticmethod
+    def _session_hint_level(ended_outcomes: Sequence[CueOutcome], clue_ids: Sequence[str]) -> int | None:
         """세션 힌트 단계 = 목표 단서별 힌트 단계의 최댓값(F-18 ②, T-36 — 2026-11-14 사용자 결정 "가장 큰 값").
 
         목표 단서가 없으면(정상 상황) None. 1차 AI 계약에 없으므로 저장만 한다(#104 ④).
         """
-        levels = hint_levels(self._ended_cue_outcomes(child_id), clue_ids)
+        levels = hint_levels(ended_outcomes, clue_ids)
         return max(levels.values()) if levels else None
 
     def _preferred_platforms(self, favorite_apps: Sequence[str]) -> frozenset[str]:
@@ -346,6 +351,7 @@ class PracticeService:
         preferred_platforms: frozenset[str],
         retry_of: UUID | None,
         draw_index: int | None,
+        ended_outcomes: Sequence[CueOutcome] | None = None,
     ) -> SessionOutput:
         """variant → start → 검증 → 세션·턴 0 저장. AI 실패면 아무것도 저장하지 않는다."""
         try:
@@ -388,7 +394,11 @@ class PracticeService:
                 draw_index=draw_index,
                 started_at=self._clock(),
                 retry_of=retry_of,
-                hint_level=self._session_hint_level(child_id, clue_ids),
+                # 새 출제는 앞에서 읽은 기록을 재사용, 다시 도전은 여기서 1회 읽는다 (T-96)
+                hint_level=self._session_hint_level(
+                    ended_outcomes if ended_outcomes is not None else self._ended_cue_outcomes(child_id),
+                    clue_ids,
+                ),
             ),
             first_turn,
         )
