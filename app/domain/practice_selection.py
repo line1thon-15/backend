@@ -4,10 +4,12 @@
 - 변형 값: 시나리오 `variation_axes` 안에서 platform·tone·context를 주입 난수로 고른다.
 - F-12: 같은 시나리오 직전 세션과 platform 또는 tone이 1개 이상 다르다(context만 다른 것은 세지 않음).
 - F-08: 선호 플랫폼(favorite_apps의 앱 유형에 맞는 것)을 우선하되 F-12가 먼저다.
-약점 우선(F-18)·정상 상황 비율(F-17)·시작 난이도(F-07)는 이 작업 범위 밖(1차 꺼짐·OQ 14).
+- F-18 ① 약점 우선(T-36): 약점 단서(`select_weak_cues` 결과)를 하나라도 포함한 시나리오를 먼저 시도한다.
+  학년 제한·F-12가 먼저 적용되고, 우선 후보를 낼 수 없으면 나머지 후보로 넘어간다. 약점이 없으면 이전과 같은 난수 순서.
+정상 상황 비율(F-17)·시작 난이도(F-07)는 이 모듈 범위 밖(1차 꺼짐·OQ 14).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from random import Random
 
@@ -21,6 +23,7 @@ class ScenarioCandidate:
     platforms: tuple[str, ...]
     tones: tuple[str, ...]
     contexts: tuple[str, ...]
+    cue_ids: tuple[str, ...] = ()  # 시나리오 목표 단서 — 약점 우선(F-18 ①) 판정용
 
 
 @dataclass(frozen=True)
@@ -62,10 +65,13 @@ def choose_variant_axes(
     previous: AxisPair | None,
     preferred_platforms: frozenset[str],
     rng: Random,
+    exclude: Collection[AxisPair] = (),
 ) -> VariantAxes | None:
     combos = [(p, t) for p in candidate.platforms for t in candidate.tones]
     if previous is not None:
         combos = [(p, t) for p, t in combos if p != previous.platform or t != previous.tone]
+    # fallback 재요청(T-95): 이미 요청했거나 받은 조합은 다시 고르지 않는다
+    combos = [(p, t) for p, t in combos if AxisPair(platform=p, tone=t) not in exclude]
     if not combos or not candidate.contexts:
         return None
     preferred = [(p, t) for p, t in combos if p in preferred_platforms]
@@ -80,10 +86,15 @@ def draw_scenario(
     previous: Mapping[str, AxisPair],
     preferred_platforms: frozenset[str],
     rng: Random,
+    weak_cue_ids: frozenset[str] = frozenset(),
 ) -> Draw | None:
     eligible = [c for c in candidates if is_grade_eligible(grade=grade, min_grade=c.min_grade)]
-    rng.shuffle(eligible)
-    for candidate in eligible:
+    weak_first = [c for c in eligible if weak_cue_ids.intersection(c.cue_ids)]
+    rest = [c for c in eligible if not weak_cue_ids.intersection(c.cue_ids)]
+    # 우선 후보가 없거나 전부면 이전과 같은 shuffle 한 번 — 약점이 결과를 바꾸지 않는 경우 출제가 그대로다
+    rng.shuffle(weak_first)
+    rng.shuffle(rest)
+    for candidate in weak_first + rest:
         axes = choose_variant_axes(
             candidate,
             previous=previous.get(candidate.scenario_id),

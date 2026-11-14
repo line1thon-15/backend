@@ -7,26 +7,32 @@
 
 연습 기록은 DB에 직접 넣는다(AI 호출 없음). DB는 테스트마다 pytest tmp_path SQLite 파일.
 `notices`는 guardian_notices 테이블에서 채운다(2026-11-12 사용자 답 "T-25에 포함 (추천)"). `metrics`는 T-46 계산 서비스
-결과(T-90 — 2026-11-12 사용자 답 "T-90에서 연결 (추천)", 시계 주입), `summary`는 DECISIONS #123 고정 임시값. 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
+결과(T-90 — 2026-11-12 사용자 답 "T-90에서 연결 (추천)", 시계 주입), `summary`는 T-76 보호자 학습 요약(AI 포트 Fake). 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
 (2026-11-12 사용자 답 "금지 범위 좁히기 (추천)").
 """
 
 import json
+import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import event
 
+from app.ai_client.http_client import HttpPracticeAI
+from app.ai_client.ports import AIUnavailableError, SummaryRequest, SummaryResponse
 from app.api.report import GuardianReportResponse
+from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import CueResult, GuardianNotice, PracticeSession, PracticeTurn
 from app.main import create_app
+from app.services import guardian_report as guardian_report_service_module
 
 CONTENT = load_content()
 MARKER = "GUARDIAN-REPORT-MARKER-5b1e"
@@ -305,8 +311,12 @@ def test_report_placeholders_for_sources_not_on_this_branch(env, family):
         }
         for metric_id, label_text in METRIC_LABELS.items()
     ]
-    # 2026-11-12 사용자 답 "아직 기록이 적어요 (추천)" — T-76 전 임시값
-    assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
+    # T-76: DECISIONS #123 임시값(insufficient) → 실제 요약. 기본 Fake(AI_CLIENT=fake) 문장, 영역 이름은 콘텐츠 areas[].name
+    assert body["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [{"area": "scam", "sentences": ["[fake] 사기 연습을 1번 했어요."]}],
+    }
 
 
 def test_report_for_child_without_records_is_empty_progress(env, family):
@@ -626,3 +636,267 @@ def test_report_with_notices_has_kind_only_inside_notices(env, family):
 def test_forbidden_key_check_flags_kind_outside_notices(body):
     # 경우 2: notices 항목 바로 아래가 아닌 kind(와 notices 안의 다른 금지 키)는 잡아낸다
     assert forbidden_keys_found(body) != set()
+
+
+# ==== 보호자 학습 요약 (T-76 — F-47 ①②③⑥, DECISIONS #103·#114·#119) ====================
+
+
+class RecordingSummaryAI:
+    """요청을 기록하는 SummaryAI 대역. `fail_area`(영역 표시 이름)면 전송 실패를 낸다."""
+
+    def __init__(self, fail_area: str | None = None) -> None:
+        self.fail_area = fail_area
+        self.requests = []
+
+    def summary(self, request: SummaryRequest) -> SummaryResponse:
+        self.requests.append(request)
+        if request.area == self.fail_area:
+            raise AIUnavailableError("summary failed")
+        return SummaryResponse(summary=f"{request.area} 연습을 꾸준히 했어요.")
+
+
+@pytest.fixture
+def summary_env(tmp_path) -> Iterator[tuple[Env, RecordingSummaryAI]]:
+    ai = RecordingSummaryAI()
+    app = create_app(
+        Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'summary.db').as_posix()}", ai_client="fake"),
+        clock=lambda: NOW,
+        summary_ai=ai,
+    )
+    Base.metadata.create_all(app.state.engine)
+    with TestClient(app) as client:
+        yield Env(client), ai
+    app.state.engine.dispose()
+
+
+def area_name(area_id: str) -> str:
+    """콘텐츠 사본 ai/clues.json의 영역 표시 이름 (AI 계약 `area`)."""
+    data = json.loads((DEFAULT_CONTENT_DIR / "ai" / "clues.json").read_text(encoding="utf-8"))
+    return {item["id"]: item["name"] for item in data["areas"]}[area_id]
+
+
+def test_summary_items_per_area_with_records_in_period(summary_env):
+    env, ai = summary_env
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "found", "advance_payment": "missed"})
+    env.seed_session(child["child_id"], area="scam", ended_at=T0 + timedelta(hours=1), outcomes={"urgency": "found"})
+    env.seed_session(child["child_id"], area="friend_pressure", outcomes={"guilt_pressure": "missed"})
+    # 이번 기간 밖(한국 11-05) — 요약 입력에서 빠짐 / 멈춘 연습 — 빠짐 (F-11 ⑧)
+    env.seed_session(child["child_id"], area="identity_lending", ended_at=datetime(2026, 11, 5, 3, 0, tzinfo=timezone.utc))
+    env.seed_session(child["child_id"], area="scam", status="stopped", outcomes={"keep_secret": "missed"})
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [
+            {"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]},
+            {"area": "friend_pressure", "sentences": [f"{area_name('friend_pressure')} 연습을 꾸준히 했어요."]},
+        ],
+    }
+    assert [r.model_dump() for r in ai.requests] == [
+        {
+            "area": area_name("scam"),
+            "practice_count": 2,
+            "found_clues": [label("urgency")],
+            "missed_clues": [label("advance_payment")],
+            "growth_level": None,
+        },
+        {
+            "area": area_name("friend_pressure"),
+            "practice_count": 1,
+            "found_clues": [],
+            "missed_clues": [label("guilt_pressure")],
+            "growth_level": None,
+        },
+    ]
+
+
+def test_summary_requests_carry_no_conversation_text(summary_env):
+    # F-47 ③ — AI에 넘기는 값에 대화 문장·선택지·변형·감정 값 0건
+    env, ai = summary_env
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], outcomes={"urgency": "missed"})
+
+    env.report(child["child_id"], guardian)
+
+    assert len(ai.requests) == 1
+    dumped = json.dumps([r.model_dump() for r in ai.requests], ensure_ascii=False)
+    assert MARKER not in dumped
+    assert set(ai.requests[0].model_dump()) == {"area", "practice_count", "found_clues", "missed_clues", "growth_level"}
+
+
+def test_summary_failure_keeps_rest_of_report(summary_env):
+    env, ai = summary_env
+    ai.fail_area = area_name("friend_pressure")
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "missed"})
+    env.seed_session(child["child_id"], area="friend_pressure", outcomes={"guilt_pressure": "missed"})
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+    assert body["areas"][0]["practice_count"] == 1
+    assert body["child"]["nickname"] == "하늘이"
+
+
+def test_summary_without_records_in_period_is_insufficient(summary_env):
+    env, ai = summary_env
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], ended_at=datetime(2026, 11, 1, 3, 0, tzinfo=timezone.utc))
+
+    body = env.report(child["child_id"], guardian).json()
+
+    assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
+    assert ai.requests == []
+
+
+def test_summary_not_generated_for_other_guardians_child(summary_env):
+    env, ai = summary_env
+    owner = env.new_guardian()
+    child = env.new_child(owner)
+    env.seed_session(child["child_id"], outcomes={"urgency": "missed"})
+    stranger = env.new_guardian()
+
+    response = env.report(child["child_id"], stranger)
+
+    assert response.status_code == 404
+    assert ai.requests == []
+
+
+# ==== 요약 병렬 호출 + 전체 상한 (T-98 — ADR-0020 결과 ⑩) ================================
+
+
+@pytest.fixture
+def summary_app_factory(tmp_path):
+    """요약 AI를 지정해 앱을 띄운다. 닫을 것(앱·Http 클라이언트·막힌 대역의 gate)은 teardown에서 정리."""
+    cleanups = []
+
+    def _make(summary_ai) -> Env:
+        db = tmp_path / f"summary-{len(cleanups)}.db"
+        app = create_app(
+            Settings(_env_file=None, database_url=f"sqlite:///{db.as_posix()}", ai_client="fake"),
+            clock=lambda: NOW,
+            summary_ai=summary_ai,
+        )
+        Base.metadata.create_all(app.state.engine)
+        client = TestClient(app)
+        client.__enter__()
+        cleanups.append((client, app))
+        return Env(client)
+
+    yield _make
+    for client, app in cleanups:
+        client.__exit__(None, None, None)
+        app.state.engine.dispose()
+
+
+class BlockingSummaryAI:
+    """`block_area`(영역 표시 이름) 호출은 gate가 열릴 때까지(최대 3초) 막힌다."""
+
+    def __init__(self, block_area: str) -> None:
+        self.block_area = block_area
+        self.gate = threading.Event()
+        self.finished: list[str] = []
+
+    def summary(self, request: SummaryRequest) -> SummaryResponse:
+        if request.area == self.block_area:
+            self.gate.wait(timeout=3.0)
+        self.finished.append(request.area)
+        return SummaryResponse(summary=f"{request.area} 연습을 꾸준히 했어요.")
+
+
+def seed_two_areas(env: Env):
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "missed"})
+    env.seed_session(child["child_id"], area="friend_pressure", outcomes={"guilt_pressure": "missed"})
+    return guardian, child
+
+
+def test_summary_over_deadline_keeps_report_200(summary_app_factory, monkeypatch):
+    # 상한 초과 → summary unavailable, A11은 200·나머지 필드 정상, 막힌 호출을 기다리지 않음
+    monkeypatch.setattr(guardian_report_service_module, "SUMMARY_DEADLINE_SECONDS", 0.2)
+    ai = BlockingSummaryAI(block_area=area_name("friend_pressure"))
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+
+        response = env.report(child["child_id"], guardian)
+        still_blocked = area_name("friend_pressure") not in ai.finished
+    finally:
+        ai.gate.set()
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+    assert body["child"]["nickname"] == "하늘이"
+    assert {a["area"]: a["practice_count"] for a in body["areas"]}["scam"] == 1
+    assert still_blocked
+
+
+def _http_summary_ai(handler) -> HttpPracticeAI:
+    return HttpPracticeAI(
+        base_url="http://ai.test", token="test-token", timeout_seconds=5.0, transport=httpx.MockTransport(handler)
+    )
+
+
+def test_summary_http_read_timeout_keeps_report_200(summary_app_factory):
+    # 실제 HTTP 클라이언트 경로: 한 영역 ReadTimeout → AIUnavailableError → unavailable, A11 200
+    friend = area_name("friend_pressure")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["area"] == friend:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json={"summary": "꾸준히 연습했어요."})
+
+    ai = _http_summary_ai(handler)
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+
+        response = env.report(child["child_id"], guardian)
+    finally:
+        ai.close()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+
+
+def test_summary_http_calls_are_concurrent_through_shared_client(summary_app_factory):
+    # ADR-0020 결과 ③: httpx 동기 클라이언트 1개를 여러 스레드가 동시에 써도 두 호출이 함께 진행·ok
+    barrier = threading.Barrier(2, timeout=2.0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            return httpx.Response(503, text="not concurrent")
+        return httpx.Response(200, json={"summary": f"{json.loads(request.content)['area']} 연습을 꾸준히 했어요."})
+
+    ai = _http_summary_ai(handler)
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+
+        response = env.report(child["child_id"], guardian)
+    finally:
+        ai.close()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [
+            {"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]},
+            {"area": "friend_pressure", "sentences": [f"{area_name('friend_pressure')} 연습을 꾸준히 했어요."]},
+        ],
+    }

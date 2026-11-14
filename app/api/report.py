@@ -132,9 +132,12 @@ def get_guardian_report(
             )
             for metric in metrics
         ],
+        # 보호자 학습 요약 (T-76 — F-47) — ok일 때만 items 있음, 영역 값은 Area ID(이름 표시는 프론트)
         summary=GuardianSummaryView(
             status=report.summary.status,
             unit=report.summary.unit,
-            items=[],
+            items=[
+                SummaryItem(area=item.area, sentences=list(item.sentences)) for item in report.summary.items
+            ],
         ),
     )

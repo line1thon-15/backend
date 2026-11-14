@@ -1,5 +1,6 @@
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from random import Random
@@ -17,11 +18,13 @@ from app.api.me import router as me_router
 from app.api.onboarding import router as onboarding_router
 from app.api.practice import router as practice_router
 from app.api.report import router as report_router
-from app.ai_client.factory import build_practice_ai
-from app.ai_client.ports import PracticeAI
+from app.api.trusted_contact import router as trusted_contact_router
+from app.ai_client.factory import build_practice_ai, build_summary_ai
+from app.ai_client.ports import PracticeAI, SummaryAI
 from app.content.loader import AREA_IDS
 from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
+from app.content.schemas import AiCluesFile
 
 from app.core.config import Settings
 from app.core.errors import AppError
@@ -36,6 +39,7 @@ from app.repositories.db_health import SqlAlchemyDatabaseProbe
 from app.repositories.guardian_report import SqlAlchemyGuardianReportRepository
 from app.repositories.onboarding import SqlAlchemyOnboardingRepository
 from app.repositories.practice import SqlAlchemyPracticeRepository
+from app.repositories.trusted_contact_notice import SqlAlchemyTrustedContactNoticeRepository
 from app.services.auth import AuthService
 from app.services.badges import BadgeService
 from app.services.child_views import ChildViewsService
@@ -45,6 +49,7 @@ from app.services.guardian_report import GuardianReportService
 from app.services.health import HealthService
 from app.services.onboarding import OnboardingService
 from app.services.practice import PracticeService
+from app.services.trusted_contact import TrustedContactEventService
 
 API_PREFIX = "/api/v1"
 logger = logging.getLogger(__name__)
@@ -135,10 +140,20 @@ async def _handle_unexpected_error(
     )
 
 
+def _area_names(content_dir: Path) -> dict[str, str]:
+    """Area ID → 영역 표시 이름(ai/clues.json `areas[].name` — AI summary 계약의 `area`).
+
+    ContentBundle에 영역 이름이 없어 같은 파일을 한 번 더 읽는다. 파일 검증은 load_content가 이미 끝냈다.
+    """
+    clues_file = AiCluesFile.model_validate_json((Path(content_dir) / "ai" / "clues.json").read_text(encoding="utf-8"))
+    return {area.id: area.name for area in clues_file.areas}
+
+
 def create_app(
     settings: Settings | None = None,
     content_dir: Path = DEFAULT_CONTENT_DIR,
     practice_ai: PracticeAI | None = None,
+    summary_ai: SummaryAI | None = None,
     rng_factory: Callable[[], Random] = Random,
     card_level_by_key: Mapping[str, str] = CARD_LEVEL_BY_KEY,
     clock: Callable[[], datetime] = _utcnow,
@@ -150,7 +165,16 @@ def create_app(
     engine = make_engine(settings.database_url)
     session_factory = make_session_factory(engine)
 
-    app = FastAPI()
+    # create_app이 직접 만든 자원만 종료 시 닫는다 — 주입받은 것은 주입한 쪽이 관리 (T-94 리뷰 #3)
+    owned_closers: list[Callable[[], None]] = []
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        for close in owned_closers:
+            close()
+
+    app = FastAPI(lifespan=lifespan)
     app.state.settings = settings
     app.state.content = content
     app.state.engine = engine
@@ -161,12 +185,6 @@ def create_app(
     app.state.auth_service = AuthService(auth_repository)
     app.state.children_service = ChildrenService(
         SqlAlchemyChildrenRepository(session_factory)
-    )
-    # 보호자 리포트 A11 (T-25) — 단서 이름은 콘텐츠 사본(T-87)
-    app.state.guardian_report_service = GuardianReportService(
-        SqlAlchemyGuardianReportRepository(session_factory),
-        AREA_IDS,
-        {clue_id: clue.name for clue_id, clue in content.clues.items()},
     )
     app.state.onboarding_service = OnboardingService(
         SqlAlchemyOnboardingRepository(session_factory),
@@ -181,6 +199,29 @@ def create_app(
                 for scenario_id, entry in content.scenarios.items()
             },
         )
+        # HttpPracticeAI는 httpx 커넥션 풀을 가진다 — 앱 종료 시 닫는다 (Fake에는 close가 없다)
+        close_ai = getattr(practice_ai, "close", None)
+        if callable(close_ai):
+            owned_closers.append(close_ai)
+    # 보호자 학습 요약 AI (T-76) — 미지정이면 연습 AI가 summary도 구현할 때(HttpPracticeAI) 같은 인스턴스를 쓰고
+    # (커넥션 풀 1개, close 1회), 아니면 AI_CLIENT 설정대로 만든다. 만든 것만 종료 시 닫는다.
+    if summary_ai is None:
+        if isinstance(practice_ai, SummaryAI):
+            summary_ai = practice_ai
+        else:
+            summary_ai = build_summary_ai(settings)
+            close_summary = getattr(summary_ai, "close", None)
+            if callable(close_summary):
+                owned_closers.append(close_summary)
+    # 보호자 리포트 A11 (T-25) — 단서·영역 이름은 콘텐츠 사본(T-87). 학습 요약(T-76)은 지표와 같은 시계
+    app.state.guardian_report_service = GuardianReportService(
+        SqlAlchemyGuardianReportRepository(session_factory),
+        AREA_IDS,
+        {clue_id: clue.name for clue_id, clue in content.clues.items()},
+        summary_ai=summary_ai,
+        area_names=_area_names(content_dir),
+        clock=clock,
+    )
     app.state.practice_service = PracticeService(
         SqlAlchemyPracticeRepository(session_factory),
         practice_ai,
@@ -205,6 +246,10 @@ def create_app(
         cue_cards={clue_id: (clue.name, clue.description) for clue_id, clue in content.clues.items()},
         metric_labels=metric_labels,
     )
+    # 믿는 사람 연락 기록 A14 (T-40) — guardian_notices에 trusted_contact 한 행, 시각은 같은 시계
+    app.state.trusted_contact_event_service = TrustedContactEventService(
+        SqlAlchemyTrustedContactNoticeRepository(session_factory), clock=clock
+    )
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
@@ -226,6 +271,7 @@ def create_app(
     app.include_router(practice_router, prefix=API_PREFIX)
     app.include_router(report_router, prefix=API_PREFIX)
     app.include_router(me_router, prefix=API_PREFIX)
+    app.include_router(trusted_contact_router, prefix=API_PREFIX)
     return app
 
 

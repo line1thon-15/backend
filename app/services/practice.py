@@ -1,6 +1,6 @@
 """연습 세션 유스케이스 A15·A16·A17 (T-15)·A18과 A15 다시 도전 (T-16) — Architecture 데이터 흐름 3·4번, "1차 내부 API v1".
 
-- A15: domain이 시나리오(학년 제한)·변형 값(F-12·F-08)을 고름 → `variant` → `start` → 세션·턴 0 저장.
+- A15: domain이 시나리오(학년 제한·약점 우선 F-18 ① — T-36)·변형 값(F-12·F-08)을 고름 → `variant` → `start` → 세션·턴 0 저장.
 - A16: 본인 세션의 현재 상태.
 - A17: 404 → 409 → 422 → 종료 판정(domain) → `turn` 또는 `judge` → 한 트랜잭션 저장(#82·#85).
   safe_reply면 고정 문구 턴으로 멈춤(#99·#113·#118), AI `reply`는 쓰지 않는다.
@@ -30,6 +30,7 @@ from app.ai_client.ports import (
 )
 from app.content.loader import ContentBundle
 from app.core.errors import AppError
+from app.domain.hint_level import hint_levels
 from app.domain.practice_end import is_practice_over
 from app.domain.practice_result import (
     CARD_LEVEL_BY_KEY,
@@ -45,6 +46,7 @@ from app.domain.practice_selection import (
     choose_variant_axes,
     draw_scenario,
 )
+from app.domain.weak_cues import CueOutcome, select_weak_cues
 from app.services import practice_validation as check
 from app.services.ports import (
     NewCueResult,
@@ -157,6 +159,15 @@ class PracticeService:
     # ---- A15 ------------------------------------------------------------------
 
     def start_area_session(self, *, child_id: UUID, area: str) -> SessionOutput:
+        return self._start_new_draw(child_id=child_id, mode="area", area=area)
+
+    def start_mission_session(self, *, child_id: UUID) -> SessionOutput:
+        """오늘의 미션 (F-10, T-49): 영역 미지정 새 출제 — 출제 규칙은 영역 선택과 같다(Architecture
+        "오늘의 미션 (F-10)" 임시 구조). 구성 규칙(PRD OQ 13 중 미션)은 보류라 여기서 정하지 않는다."""
+        return self._start_new_draw(child_id=child_id, mode="mission", area=None)
+
+    def _start_new_draw(self, *, child_id: UUID, mode: str, area: str | None) -> SessionOutput:
+        """새 출제(area·mission). `area`가 None이면 모든 영역 시나리오가 후보다."""
         profile = self._child_profile(child_id)
 
         candidates = [
@@ -166,20 +177,25 @@ class PracticeService:
                 platforms=tuple(entry.variation_axes.platform),
                 tones=tuple(entry.variation_axes.tone),
                 contexts=tuple(entry.variation_axes.context),
+                cue_ids=tuple(clue.id for clue in entry.scenario.clues),
             )
             for scenario_id, entry in self._content.scenarios.items()
-            if entry.area == area
+            if area is None or entry.area == area
         ]
         previous_pairs = self._repository.latest_variant_axes(
             child_id, [candidate.scenario_id for candidate in candidates]
         )
         previous = {sid: AxisPair(platform=p, tone=t) for sid, (p, t) in previous_pairs.items()}
+        preferred_platforms = self._preferred_platforms(profile.favorite_apps)
+        # 종료 세션 기록은 한 번만 읽어 약점 우선 출제와 힌트 단계에 같이 쓴다 (T-96 — PR #26 리뷰 P2)
+        ended_outcomes = self._ended_cue_outcomes(child_id)
         draw = draw_scenario(
             candidates,
             grade=profile.grade,
             previous=previous,
-            preferred_platforms=self._preferred_platforms(profile.favorite_apps),
+            preferred_platforms=preferred_platforms,
             rng=self._rng_factory(),
+            weak_cue_ids=self._weak_cue_ids(ended_outcomes),
         )
         if draw is None:
             raise _no_scenario()
@@ -187,12 +203,15 @@ class PracticeService:
         entry = self._content.scenarios[draw.scenario_id]
         return self._begin_session(
             child_id=child_id,
-            mode="area",
-            area=area,
+            mode=mode,
+            area=entry.area,
             scenario_id=draw.scenario_id,
             clue_ids=tuple(clue.id for clue in entry.scenario.clues),
             axes=draw.axes,
             previous=previous_pairs.get(draw.scenario_id),
+            candidate=next(c for c in candidates if c.scenario_id == draw.scenario_id),
+            preferred_platforms=preferred_platforms,
+            ended_outcomes=ended_outcomes,
             retry_of=None,
             draw_index=self._repository.count_new_draws(child_id) + 1,
         )
@@ -214,16 +233,18 @@ class PracticeService:
             raise _no_scenario()
         axes_source = entry.variation_axes
         previous = (original.variant["platform"], original.variant["tone"])
+        candidate = ScenarioCandidate(
+            scenario_id=original.scenario_id,
+            min_grade=None,  # 이미 출제된 시나리오 — 학년 제한은 첫 출제 때 적용됨
+            platforms=tuple(axes_source.platform),
+            tones=tuple(axes_source.tone),
+            contexts=tuple(axes_source.context),
+        )
+        preferred_platforms = self._preferred_platforms(profile.favorite_apps)
         axes = choose_variant_axes(
-            ScenarioCandidate(
-                scenario_id=original.scenario_id,
-                min_grade=None,  # 이미 출제된 시나리오 — 학년 제한은 첫 출제 때 적용됨
-                platforms=tuple(axes_source.platform),
-                tones=tuple(axes_source.tone),
-                contexts=tuple(axes_source.context),
-            ),
+            candidate,
             previous=AxisPair(platform=previous[0], tone=previous[1]),
-            preferred_platforms=self._preferred_platforms(profile.favorite_apps),
+            preferred_platforms=preferred_platforms,
             rng=self._rng_factory(),
         )
         if axes is None:
@@ -236,15 +257,96 @@ class PracticeService:
             clue_ids=original.target_cue_ids,
             axes=axes,
             previous=previous,
+            candidate=candidate,
+            preferred_platforms=preferred_platforms,
             retry_of=original.session_id,
             draw_index=None,  # 다시 도전은 새 출제 순번을 쓰지 않는다
         )
+
+    def _request_variant(
+        self,
+        *,
+        scenario_id: str,
+        clue_ids: tuple[str, ...],
+        axes: VariantAxes,
+        previous: tuple[str, str] | None,
+        candidate: ScenarioCandidate,
+        preferred_platforms: frozenset[str],
+    ) -> Variant:
+        """variant 요청 + VA1~VA4 검증. 실패면 `AIUnavailableError`.
+
+        T-95 (DECISIONS #133, ADR-0019 — 2026-11-14 사용자 결정 "백엔드가 다른 변형 요청 (추천)"): AI가 변형에
+        실패해 돌려준 원본(fallback)이 직전 세션과 같은 platform·tone이면, 직전·첫 응답과 다른 조합(첫 선택과 같은
+        규칙, context도 다시 고름)으로 1회만 다시 요청한다. 재요청 응답이 fallback이면 VA4 없이 채택하고, 고를 조합이
+        남지 않았으면 재요청 없이 원본으로 진행한다(같은 모습 허용 — PRD F-12 [2026-11-14 예외]).
+        model 응답은 첫 요청·재요청 모두 기존 VA3·VA4 그대로. AI 오류는 재요청하지 않고 그대로 올린다(503).
+        """
+        request = VariantRequest(scenario_id=scenario_id, platform=axes.platform, tone=axes.tone, context=axes.context)
+        response = self._ai.variant(request)
+        if not check.is_fallback_repeat(response, previous=previous):
+            check.check_variant(response, request=request, scenario_clue_ids=clue_ids, previous=previous)
+            return response.variant
+        # 재요청 전에도 첫 응답의 VA1·VA2는 검사한다 — 계약 위반이면 재요청 없이 503 (ADR-0019 "VA1·VA2 항상",
+        # PR #30 팀원 리뷰 P2). fallback이라 VA3는 해당 없고, 직전과 같음(VA4)은 재요청 조건이라 면제한다.
+        check.check_variant(
+            response,
+            request=request,
+            scenario_clue_ids=clue_ids,
+            previous=previous,
+            allow_fallback_repeat=True,
+        )
+
+        second_axes = choose_variant_axes(
+            candidate,
+            previous=AxisPair(platform=previous[0], tone=previous[1]) if previous is not None else None,
+            preferred_platforms=preferred_platforms,
+            rng=self._rng_factory(),
+            # 첫 응답 조합만 뺀다 — 첫 요청 조합은 빼지 않는다(다시 뽑힐 수 있음, ADR-0019 결정 4)
+            exclude=frozenset({AxisPair(platform=response.variant.platform, tone=response.variant.tone)}),
+        )
+        if second_axes is not None:
+            request = VariantRequest(
+                scenario_id=scenario_id,
+                platform=second_axes.platform,
+                tone=second_axes.tone,
+                context=second_axes.context,
+            )
+            response = self._ai.variant(request)
+        check.check_variant(
+            response,
+            request=request,
+            scenario_clue_ids=clue_ids,
+            previous=previous,
+            allow_fallback_repeat=True,
+        )
+        return response.variant
 
     def _child_profile(self, child_id: UUID):
         profile = self._repository.get_child_profile(child_id)
         if profile is None:
             raise AppError(code="UNAUTHENTICATED", status_code=401, message="child authentication is required")
         return profile
+
+    def _ended_cue_outcomes(self, child_id: UUID) -> list[CueOutcome]:
+        """종료 세션의 found·missed만(멈춘·진행 중 제외 — 리포지토리, not_shown은 저장 안 됨 #109)."""
+        return [
+            CueOutcome(cue_id=o.cue_id, outcome=o.outcome, ended_at=o.ended_at, session_id=o.session_id)
+            for o in self._repository.ended_cue_outcomes(child_id)
+        ]
+
+    @staticmethod
+    def _weak_cue_ids(ended_outcomes: Sequence[CueOutcome]) -> frozenset[str]:
+        """약점 우선 출제(F-18 ①, T-36)의 약점 단서 — Y8·G3와 같은 공통 규칙(DECISIONS #122)."""
+        return frozenset(select_weak_cues(ended_outcomes))
+
+    @staticmethod
+    def _session_hint_level(ended_outcomes: Sequence[CueOutcome], clue_ids: Sequence[str]) -> int | None:
+        """세션 힌트 단계 = 목표 단서별 힌트 단계의 최댓값(F-18 ②, T-36 — 2026-11-14 사용자 결정 "가장 큰 값").
+
+        목표 단서가 없으면(정상 상황) None. 1차 AI 계약에 없으므로 저장만 한다(#104 ④).
+        """
+        levels = hint_levels(ended_outcomes, clue_ids)
+        return max(levels.values()) if levels else None
 
     def _preferred_platforms(self, favorite_apps: Sequence[str]) -> frozenset[str]:
         return frozenset(
@@ -263,25 +365,22 @@ class PracticeService:
         clue_ids: tuple[str, ...],
         axes: VariantAxes,
         previous: tuple[str, str] | None,
+        candidate: ScenarioCandidate,
+        preferred_platforms: frozenset[str],
         retry_of: UUID | None,
         draw_index: int | None,
+        ended_outcomes: Sequence[CueOutcome] | None = None,
     ) -> SessionOutput:
         """variant → start → 검증 → 세션·턴 0 저장. AI 실패면 아무것도 저장하지 않는다."""
-        variant_request = VariantRequest(
-            scenario_id=scenario_id,
-            platform=axes.platform,
-            tone=axes.tone,
-            context=axes.context,
-        )
         try:
-            variant_response = self._ai.variant(variant_request)
-            check.check_variant(
-                variant_response,
-                request=variant_request,
-                scenario_clue_ids=clue_ids,
+            variant = self._request_variant(
+                scenario_id=scenario_id,
+                clue_ids=clue_ids,
+                axes=axes,
                 previous=previous,
+                candidate=candidate,
+                preferred_platforms=preferred_platforms,
             )
-            variant = variant_response.variant
             start = self._ai.start(StartRequest(scenario_id=scenario_id, variant=variant))
             check.check_start(start, scenario_clue_ids=clue_ids)
         except AIUnavailableError as exc:
@@ -313,6 +412,11 @@ class PracticeService:
                 draw_index=draw_index,
                 started_at=self._clock(),
                 retry_of=retry_of,
+                # 새 출제는 앞에서 읽은 기록을 재사용, 다시 도전은 여기서 1회 읽는다 (T-96)
+                hint_level=self._session_hint_level(
+                    ended_outcomes if ended_outcomes is not None else self._ended_cue_outcomes(child_id),
+                    clue_ids,
+                ),
             ),
             first_turn,
         )

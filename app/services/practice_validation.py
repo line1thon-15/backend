@@ -52,7 +52,11 @@ def check_variant(
     request: VariantRequest,
     scenario_clue_ids: Sequence[str],
     previous: tuple[str, str] | None,
+    allow_fallback_repeat: bool = False,
 ) -> None:
+    """`allow_fallback_repeat`: fallback 재요청을 마친 뒤(또는 남은 조합이 없을 때)에는 fallback이 직전과
+    같아도 허용한다 — T-95, 2026-11-14 사용자 결정 "백엔드가 다른 변형 요청 (추천)". model 응답의 VA4는 그대로.
+    """
     variant = response.variant
     if variant.base_scenario_id != request.scenario_id:
         _fail("VA1")
@@ -65,7 +69,17 @@ def check_variant(
     ):
         _fail("VA3")
     if previous is not None and (variant.platform, variant.tone) == previous:
-        _fail("VA4")
+        if not (allow_fallback_repeat and response.source == "fallback"):
+            _fail("VA4")
+
+
+def is_fallback_repeat(response: VariantResponse, *, previous: tuple[str, str] | None) -> bool:
+    """AI가 변형에 실패해 돌려준 원본(fallback)이 직전 세션과 같은 platform·tone인가 (T-95 재요청 조건)."""
+    return (
+        response.source == "fallback"
+        and previous is not None
+        and (response.variant.platform, response.variant.tone) == previous
+    )
 
 
 def check_start(response: StartResponse, *, scenario_clue_ids: Sequence[str]) -> None:

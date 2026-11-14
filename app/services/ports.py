@@ -215,6 +215,8 @@ class NewPracticeSession:
     draw_index: int | None
     started_at: datetime
     retry_of: UUID | None = None  # 다시 도전이면 직전 세션 (T-16, F-13 ③)
+    # 목표 단서별 힌트 단계의 최댓값 (T-36, F-18 ② — 2026-11-14 사용자 결정 "가장 큰 값"). 목표 단서가 없으면 None
+    hint_level: int | None = None
 
 
 @dataclass(frozen=True)

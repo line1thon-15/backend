@@ -498,7 +498,9 @@ def test_new_session_differs_from_previous_session_of_same_scenario(env):
         seen[row.scenario_id] = pair
 
 
-def test_fallback_variant_same_as_previous_is_503(env):
+def test_fallback_variant_same_as_previous_rerequests_then_proceeds(env):
+    # T-95 (2026-11-14 사용자 결정 "백엔드가 다른 변형 요청 (추천)"): 이전에는 503이었다.
+    # 같은 시나리오 새 출제에서 fallback이 직전과 같으면 1회 재요청, 그래도 같으면 원본으로 진행(같은 모습 허용).
     env.login_child(grade="H1")
     first = env.session_row(env.started()["session_id"])
     previous = first.variant
@@ -516,15 +518,19 @@ def test_fallback_variant_same_as_previous_is_503(env):
         )
 
     env.ai.overrides["variant"] = fallback_like_previous
-    statuses = set()
+    same_scenario_runs = 0
     for _ in range(8):
+        env.ai.calls.clear()
         response = env.start()
-        statuses.add(response.status_code)
-        sid = env.ai.requests("variant")[-1].scenario_id
-        if sid == first.scenario_id:
-            assert response.status_code == 503
-            assert response.json()["error"]["code"] == "AI_UNAVAILABLE"
-    assert 503 in statuses
+        assert response.status_code == 201, response.text
+        requests = env.ai.requests("variant")
+        if requests[0].scenario_id == first.scenario_id:
+            same_scenario_runs += 1
+            assert len(requests) == 2
+            assert (requests[1].platform, requests[1].tone) != (previous["platform"], previous["tone"])
+        else:
+            assert len(requests) == 1
+    assert same_scenario_runs > 0
 
 
 def test_fallback_variant_without_previous_session_is_accepted(env):
@@ -541,6 +547,8 @@ def test_fallback_variant_without_previous_session_is_accepted(env):
 
     assert response.status_code == 201
     assert env.session_row(response.json()["session_id"]).variant["platform"] == "orig"
+    # ADR-0019 ① 직전 세션이 없으면 재요청 절차도 없다 — variant 1회 (T-95)
+    assert env.ai.names() == ["variant", "start"]
 
 
 # ==== A16 조회 ===================================================================
