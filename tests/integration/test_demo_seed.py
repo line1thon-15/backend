@@ -13,6 +13,7 @@
 import json
 import re
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -25,6 +26,7 @@ from app.content.loader import load_content
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import Child, CueResult, Guardian, GuardianNotice, PracticeSession, PracticeTurn
+from app.demo.plan import build_demo_plan
 from app.demo.seed import (
     DEFAULT_ACCOUNT_FILE,
     DemoSeedConfigError,
@@ -365,6 +367,30 @@ def test_reseed_relinks_live_retry_to_new_demo_session(env):
         new_target = db.get(PracticeSession, db.get(PracticeSession, live_id).retry_of)
         assert new_target is not None
         assert (new_target.origin, new_target.draw_index, new_target.scenario_id) == ("demo_seed", draw_index, scenario_id)
+        demo_count = db.scalar(
+            select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
+        )
+    assert demo_count == 8
+
+
+def test_reseed_does_not_relink_when_plan_changed_scenario_at_same_draw_index(env):
+    """PR #27 재리뷰 P2 ① — 계획이 바뀌어 같은 순번의 시나리오·목표 단서가 달라졌으면 다른 시나리오로 잇지 않는다.
+    대응 세션이 없을 때 정책: retry_of는 비운다(NULL) — 이 값은 다시 도전을 만들 때만 읽히고 이후 로직은 읽지 않는다."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    live_id, _old_id, draw_index, scenario_id = add_live_retry_of_first_demo(env, UUID(child_id))
+    plan = build_demo_plan(NOW, CONTENT)
+    other = next(s for s in plan.sessions if s.scenario_id != scenario_id)
+    changed = tuple(
+        replace(s, scenario_id=other.scenario_id, target_cue_ids=other.target_cue_ids) if s.draw_index == draw_index else s
+        for s in plan.sessions
+    )
+
+    assert env.repository().replace_demo_records(UUID(child_id), replace(plan, sessions=changed))
+
+    with env.session_factory() as db:
+        assert db.get(PracticeSession, live_id).retry_of is None
         demo_count = db.scalar(
             select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
         )

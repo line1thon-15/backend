@@ -75,9 +75,9 @@ class SqlAlchemyDemoSeedRepository:
             # (T-97, 사용자 결정 2026-11-15 "새 예시로 다시 연결 (추천)" — PR #27 팀원 리뷰 P2 ①)
             old_demo = PracticeSession.__table__.alias("old_demo")
             relinks = [
-                (live_id, draw_index)
-                for live_id, draw_index in db.execute(
-                    select(PracticeSession.id, old_demo.c.draw_index)
+                (live_id, (draw_index, scenario_id, tuple(target_cue_ids or ())))
+                for live_id, draw_index, scenario_id, target_cue_ids in db.execute(
+                    select(PracticeSession.id, old_demo.c.draw_index, old_demo.c.scenario_id, old_demo.c.target_cue_ids)
                     .join(old_demo, PracticeSession.retry_of == old_demo.c.id)
                     .where(
                         PracticeSession.child_id == child_id,
@@ -109,7 +109,8 @@ class SqlAlchemyDemoSeedRepository:
                 )
             )
 
-            new_by_draw_index: dict[int, UUID] = {}
+            # (순번, 시나리오, 목표 단서) → 새 예시 세션 — 셋이 모두 같아야 다시 연결한다(PR #27 재리뷰 P2 ①)
+            new_by_key: dict[tuple[int, str, tuple[str, ...]], UUID] = {}
             for item in plan.sessions:
                 session = PracticeSession(
                     child_id=child_id,
@@ -134,7 +135,7 @@ class SqlAlchemyDemoSeedRepository:
                 )
                 db.add(session)
                 db.flush()
-                new_by_draw_index[item.draw_index] = session.id
+                new_by_key[(item.draw_index, item.scenario_id, tuple(item.target_cue_ids))] = session.id
                 db.add(
                     PracticeTurn(
                         session_id=session.id,
@@ -158,9 +159,10 @@ class SqlAlchemyDemoSeedRepository:
                             recorded_at=item.ended_at,
                         )
                     )
-            for live_id, draw_index in relinks:
-                # 계획에 같은 순번이 없으면(계획이 바뀐 경우) 연결 없음으로 둔다 — 지운 행을 가리키지 않게
-                new_target = new_by_draw_index.get(draw_index) if draw_index is not None else None
+            for live_id, key in relinks:
+                # 대응 세션이 없으면(계획이 바뀌어 순번·시나리오·목표 단서 중 하나라도 다름) 연결을 비운다(NULL)
+                # — 다른 시나리오로 잇지 않는다. retry_of는 다시 도전을 만들 때만 읽히고 이후 로직은 읽지 않는다.
+                new_target = new_by_key.get(key)
                 if new_target is not None:
                     db.execute(update(PracticeSession).where(PracticeSession.id == live_id).values(retry_of=new_target))
             for notice in plan.notices:
