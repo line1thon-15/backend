@@ -113,7 +113,7 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
             ai_role_name=session.ai_role_name,
             retry_of=session.retry_of,
             draw_index=session.draw_index,
-            hint_level=None,
+            hint_level=session.hint_level,
             status="in_progress",
             normal_outcome=None,
             origin="live",
