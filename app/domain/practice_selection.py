@@ -9,7 +9,7 @@
 정상 상황 비율(F-17)·시작 난이도(F-07)는 이 모듈 범위 밖(1차 꺼짐·OQ 14).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from random import Random
 
@@ -65,10 +65,13 @@ def choose_variant_axes(
     previous: AxisPair | None,
     preferred_platforms: frozenset[str],
     rng: Random,
+    exclude: Collection[AxisPair] = (),
 ) -> VariantAxes | None:
     combos = [(p, t) for p in candidate.platforms for t in candidate.tones]
     if previous is not None:
         combos = [(p, t) for p, t in combos if p != previous.platform or t != previous.tone]
+    # fallback 재요청(T-95): 이미 요청했거나 받은 조합은 다시 고르지 않는다
+    combos = [(p, t) for p, t in combos if AxisPair(platform=p, tone=t) not in exclude]
     if not combos or not candidate.contexts:
         return None
     preferred = [(p, t) for p, t in combos if p in preferred_platforms]
