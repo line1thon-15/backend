@@ -1,6 +1,6 @@
 """연습 세션 유스케이스 A15·A16·A17 (T-15)·A18과 A15 다시 도전 (T-16) — Architecture 데이터 흐름 3·4번, "1차 내부 API v1".
 
-- A15: domain이 시나리오(학년 제한)·변형 값(F-12·F-08)을 고름 → `variant` → `start` → 세션·턴 0 저장.
+- A15: domain이 시나리오(학년 제한·약점 우선 F-18 ① — T-36)·변형 값(F-12·F-08)을 고름 → `variant` → `start` → 세션·턴 0 저장.
 - A16: 본인 세션의 현재 상태.
 - A17: 404 → 409 → 422 → 종료 판정(domain) → `turn` 또는 `judge` → 한 트랜잭션 저장(#82·#85).
   safe_reply면 고정 문구 턴으로 멈춤(#99·#113·#118), AI `reply`는 쓰지 않는다.
@@ -45,6 +45,7 @@ from app.domain.practice_selection import (
     choose_variant_axes,
     draw_scenario,
 )
+from app.domain.weak_cues import CueOutcome, select_weak_cues
 from app.services import practice_validation as check
 from app.services.ports import (
     NewCueResult,
@@ -166,6 +167,7 @@ class PracticeService:
                 platforms=tuple(entry.variation_axes.platform),
                 tones=tuple(entry.variation_axes.tone),
                 contexts=tuple(entry.variation_axes.context),
+                cue_ids=tuple(clue.id for clue in entry.scenario.clues),
             )
             for scenario_id, entry in self._content.scenarios.items()
             if entry.area == area
@@ -180,6 +182,7 @@ class PracticeService:
             previous=previous,
             preferred_platforms=self._preferred_platforms(profile.favorite_apps),
             rng=self._rng_factory(),
+            weak_cue_ids=self._weak_cue_ids(child_id),
         )
         if draw is None:
             raise _no_scenario()
@@ -245,6 +248,20 @@ class PracticeService:
         if profile is None:
             raise AppError(code="UNAUTHENTICATED", status_code=401, message="child authentication is required")
         return profile
+
+    def _weak_cue_ids(self, child_id: UUID) -> frozenset[str]:
+        """약점 우선 출제(F-18 ①, T-36)의 약점 단서 — Y8·G3와 같은 공통 규칙(DECISIONS #122).
+
+        종료 세션의 found·missed만 본다(멈춘·진행 중 제외 — 리포지토리, not_shown은 저장 안 됨 #109).
+        """
+        return frozenset(
+            select_weak_cues(
+                [
+                    CueOutcome(cue_id=o.cue_id, outcome=o.outcome, ended_at=o.ended_at, session_id=o.session_id)
+                    for o in self._repository.ended_cue_outcomes(child_id)
+                ]
+            )
+        )
 
     def _preferred_platforms(self, favorite_apps: Sequence[str]) -> frozenset[str]:
         return frozenset(
