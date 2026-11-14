@@ -36,6 +36,7 @@ bash scripts/init.sh "프로젝트명"
 - T-01(백엔드 테스트 하네스)이 구현돼 있다: pytest 러너, 헬스 엔드포인트(`/api/v1/health`), `FakePracticeAI`·`FakeSummaryAI`(AI 계약 v1 포트 `PracticeAI`·`SummaryAI` 기준, T-86 재정의), import 경계 테스트, CI 워크플로. **기능 API 중 연습 세션·결과 API(T-15·T-16, 아래)만 있다.**
 - T-15(연습 세션 API)가 구현돼 있다(리뷰 치명 0, QA 408 passed — `docs/Tasks.md` T-15 행 인용): `POST /api/v1/practice/sessions`(A15, 영역별 출제), `GET /api/v1/practice/sessions/{session_id}`(A16), `POST /api/v1/practice/sessions/{session_id}/turns`(A17, 답 제출·종료 판정). DB 마이그레이션 `20261112_04`(`practice_sessions`·`practice_turns`·`cue_results`). 제한: A15는 `mode:"area"`만 받고, 지금 콘텐츠로는 고등학생만 출제되며, 공개 영역 값은 `scam`·`identity_lending`·`friend_pressure`다. 자세한 내용과 미검증 항목은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-16(연습 결과 API·다시 도전)이 구현돼 있다(리뷰 치명 0, QA 480 passed — `docs/Tasks.md` T-16 행 인용): `GET /api/v1/practice/sessions/{session_id}/result`(A18, 찾은/놓친 단서 카드와 `can_retry`), `POST /api/v1/practice/sessions`에 `mode:"retry"`+`retry_of`(A15 다시 도전). 카드 색 값은 T-89에서 확정돼(K1 green / K2 yellow / K3 green / K4 green / K5 yellow, DECISIONS #120) A18이 기본 설정에서 동작한다(485 passed, 인용). 제한: 정상 상황 결과 조회는 1차 범위 밖이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
+- T-94(실제 AI 연결 `HttpPracticeAI`)·T-36(약점 우선 출제·힌트 단계)이 별도 작업 트리에 구현돼 있다(2026-11-14, 통과 수 미확인). `AI_CLIENT=http`로 실제 AI 서버를 호출하는 방법은 아래 "실제 AI 서버 연결"이다. 제한: 실제 AI 서버 연결은 미검증이고, 1차 화면의 `hint`는 계속 null이다(`hint_level`은 저장만). 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-92(연습 API A15~A18 보호자 세션 403 `FORBIDDEN_ROLE`, T-15·T-16 재작업)이 구현돼 있다(692 passed — 인용): 유효한 보호자 세션으로 호출하면 403 `FORBIDDEN_ROLE`(저장 0건·AI 호출 0회)이고, 세션이 없거나 무효·만료면 401 `UNAUTHENTICATED`를 유지한다. 온보딩 A12는 백엔드 A 담당이라 아직 401이다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-91(A17 동시 답 충돌·늦은 중복 답 방지, T-15 재작업)이 구현돼 있다(677 passed — 인용): `POST /api/v1/practice/sessions/{session_id}/turns` 요청이 `{choice_id, turn_index}`이고 둘 다 필수다. 현재 턴이 아닌 `turn_index`는 409 `TURN_ALREADY_ANSWERED`, 동시 충돌은 세션 상태에 따라 `TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`, `turn_index` 누락·음수·비정수는 422 `VALIDATION_ERROR`다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
 - T-90(아이용 성장·홈 API)이 구현돼 있다(656 passed — 인용): `GET /api/v1/me/growth`(A19), `GET /api/v1/me/home`(A13), 보호자 세션은 403. 보호자 리포트 A11 `metrics`도 채워진다. 제한: 기존 아이 API는 보호자 세션에 401(신규 A13·A19만 403), A19 오류 코드 규격이 Architecture에 없다. 자세한 내용은 [docs/CHANGELOG.md](docs/CHANGELOG.md) 참조.
@@ -108,3 +109,17 @@ python -m venv .venv
 # 헬스 확인 (dev 서버 기동 중)
 curl -sS -i http://localhost:8080/api/v1/health
 ```
+
+## 실제 AI 서버 연결
+
+기본값은 `AI_CLIENT=fake`(Fake AI)다. 실제 AI 서버를 쓰려면 환경 변수를 아래처럼 설정한다(실제 `.env` 파일은 커밋하지 않는다). 값은 [.env.example](.env.example)의 플레이스홀더를 참고하고, 토큰은 AI 서버의 내부 토큰과 같은 값을 쓴다.
+
+```bash
+AI_CLIENT=http
+AI_SERVICE_URL=http://localhost:8081        # AI 서버 기준 URL (기본값)
+AI_SERVICE_TOKEN=<your-internal-token>      # 필수 — http인데 없으면 서버 시작 실패
+AI_SERVICE_TIMEOUT_SECONDS=30               # 기본 30, 0보다 큰 유한한 수
+```
+
+- 호출 실패(시간 초과·연결 실패·비2xx·응답 형식 불일치)는 `AIUnavailableError`로 처리된다.
+- 한계: 실제 AI 서버와의 연결은 아직 검증하지 못했다(미검증). AI 쪽 정상 상황 응답 형태가 백엔드 포트와 달라 1차에서는 정상 상황 출제가 꺼져 있다.
