@@ -801,7 +801,7 @@ def test_retry_ai_failure_is_503_and_saves_nothing(env, failing):
         {"mode": "retry", "retry_of": None},
         {"mode": "retry", "retry_of": "00000000-0000-0000-0000-000000000000", "area": "scam"},
         {"mode": "area", "retry_of": "00000000-0000-0000-0000-000000000000"},
-        {"mode": "mission"},
+        # {"mode": "mission"}은 T-49에서 유효 요청이 됨 — mission 형식 오류는 test_practice_mission.py
     ],
 )
 def test_invalid_retry_request_is_422(env, payload):

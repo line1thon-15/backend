@@ -34,9 +34,15 @@ class StartRetrySessionRequest(BaseModel):
     retry_of: UUID
 
 
-# mission(F-10)은 담당 작업에서 추가 — 지금은 422
+class StartMissionSessionRequest(BaseModel):
+    # 오늘의 미션 (T-49, F-10) — 영역 미지정 새 출제. area·retry_of를 보내면 422
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["mission"]
+
+
 StartSessionRequest = Annotated[
-    StartAreaSessionRequest | StartRetrySessionRequest,
+    StartAreaSessionRequest | StartMissionSessionRequest | StartRetrySessionRequest,
     Field(discriminator="mode"),
 ]
 
@@ -155,6 +161,8 @@ def start_practice_session(
     service = _service(request)
     if isinstance(payload, StartRetrySessionRequest):
         return _view(service.start_retry_session(child_id=child_id, retry_of=payload.retry_of))
+    if isinstance(payload, StartMissionSessionRequest):
+        return _view(service.start_mission_session(child_id=child_id))
     return _view(service.start_area_session(child_id=child_id, area=payload.area))
 
 
