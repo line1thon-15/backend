@@ -31,9 +31,9 @@ bash scripts/init.sh "프로젝트명"
 
 느린학습자(경계선 지능) 청소년이 위험하거나 어려운 상황을 AI와 안전하게 반복 연습하도록 돕는 반응형 웹 서비스의 **백엔드 저장소**다 (서비스명 미정, 근거: [docs/PRD.md](docs/PRD.md) 머리글·한 줄 정의). Python + FastAPI 백엔드이며 프론트·AI 서비스는 별도 저장소다([Architecture](docs/Architecture.md) 참조).
 
-### 현재 상태 (2026-11-15, `dev` 15490a5 기준)
+### 현재 상태 (2026-11-15, `dev` 377b573 기준)
 
-아래는 모두 `dev`에 병합된 상태다. 기능 PR: #23(T-67)·#25(T-94)·#26(T-36)·#27(T-97)·#29(T-76)·#30(T-95·T-96)·#31(T-98). 통과 수는 각 작업의 QA·리뷰 보고(`docs/Tasks.md`)에서 가져온 인용값이며 이번 정리에서 다시 실행하지 않았다. 변경 이력은 [docs/CHANGELOG.md](docs/CHANGELOG.md)다.
+아래는 모두 `dev`에 병합된 상태다. 기능 PR: #23(T-67)·#25(T-94)·#26(T-36)·#27(T-97)·#29(T-76)·#30(T-95·T-96)·#31(T-98)·#32(T-40)·#33(T-49), 문서 PR #28. 병합 후 `dev` 377b573에서 메인 세션이 전체 테스트를 실행해 1003 passed·종료 코드 0이었다(`.artifacts/verification/ADHOC/dev-377b573-20261115T073341/`, 인용 — 이번 문서 갱신에서 다시 실행하지 않음). 그 밖의 통과 수는 각 작업의 QA·리뷰 보고(`docs/Tasks.md`)에서 가져온 인용값이다. 변경 이력은 [docs/CHANGELOG.md](docs/CHANGELOG.md)다.
 
 **제공 API** (모두 `/api/v1` 아래, 라우터 `app/api/*.py` 기준)
 
@@ -47,8 +47,8 @@ bash scripts/init.sh "프로젝트명"
 | 보호자 리포트(A11) | `GET /children/{child_id}/report` | 보호자 | 아이 세션은 403 `FORBIDDEN_ROLE` |
 
 **연습 API (A15~A18)**
-- A15 `POST /practice/sessions`는 두 모드를 받는다. `mode:"area"`+`area`는 영역별 출제(영역 값 `scam`·`identity_lending`·`friend_pressure`)이고, `mode:"retry"`+`retry_of`는 끝난 세션의 다시 도전(영역은 원 세션 값)이다. `mission` 모드는 요청으로 받지 않는다. 지금 콘텐츠로는 고등학생만 출제된다(사기 시나리오 2개가 `min_grade H1`, CHANGELOG T-15 인용).
-- **오늘의 미션 `mode:"mission"` (T-49) — PR #33, dev 미병합** — 위 A15 설명은 `dev` 15490a5 기준이다. 브랜치 `feat/T-49-mission-mode` 커밋 0715f41에만 있고 PR #33(base dev, 열림)으로 올라가 있다. 병합되면 `{"mode":"mission"}`이 영역 없이 기존 출제 규칙으로 새로 출제하고(`area`·`retry_of`를 함께 보내면 422, `draw_index`는 area 모드와 순번 공유), 누를 때마다 새로 출제한다(하루 1개 고정·영역 선택·완료 표시는 PRD OQ 13 미결). 현재 콘텐츠는 사기 영역(고1 이상)뿐이라 중학생 이하는 409다. 영역 간 출제는 테스트용 임시 콘텐츠로만 검증했다. QA 989 passed(`.artifacts/verification/T-49/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음).
+- A15 `POST /practice/sessions`는 두 모드를 받는다. `mode:"area"`+`area`는 영역별 출제(영역 값 `scam`·`identity_lending`·`friend_pressure`)이고, `mode:"retry"`+`retry_of`는 끝난 세션의 다시 도전(영역은 원 세션 값)이다. `mode:"mission"`은 아래 오늘의 미션(T-49)이다. 지금 콘텐츠로는 고등학생만 출제된다(사기 시나리오 2개가 `min_grade H1`, CHANGELOG T-15 인용).
+- **오늘의 미션 `mode:"mission"` (T-49) — PR #33, dev에 병합됨(병합 커밋 377b573)** — 구현 커밋 0715f41. `{"mode":"mission"}`이 영역 없이 기존 출제 규칙으로 새로 출제하고(`area`·`retry_of`를 함께 보내면 422, `draw_index`는 area 모드와 순번 공유), 누를 때마다 새로 출제한다(하루 1개 고정·영역 선택·완료 표시는 PRD OQ 13 미결). 현재 콘텐츠는 사기 영역(고1 이상)뿐이라 중학생 이하는 409다. 영역 간 출제는 테스트용 임시 콘텐츠로만 검증했다. QA 989 passed(`.artifacts/verification/T-49/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음). 병합 후 `dev` 전체는 1003 passed(위 "현재 상태" 인용).
 - A17 요청은 `{choice_id, turn_index}`이고 둘 다 필수다. 현재 턴이 아닌 `turn_index`는 409 `TURN_ALREADY_ANSWERED`, 동시 충돌은 `TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`, `turn_index` 누락·음수·비정수는 422 `VALIDATION_ERROR`다(T-91).
 - A18 결과는 찾은/놓친 단서 카드와 `can_retry`를 준다. 카드 색은 K1 green / K2 yellow / K3 green / K4 green / K5 yellow다(DECISIONS #120). 정상 상황 출제가 1차에서 꺼져 있어 정상 상황 결과 조회는 범위 밖이다.
 - 출제는 약점 단서(놓침 2회 이상 + 최근 놓침, 최대 3개)를 가진 시나리오를 우선하고(T-36), 세션 `hint_level`은 저장만 한다 — 화면의 `hint`는 항상 null이다. `HINT_MAX=2`는 잠정값(PRD OQ 14)이다.
@@ -59,7 +59,7 @@ bash scripts/init.sh "프로젝트명"
 - 영역별 진행·약점 단서·`metrics`·알림 목록을 준다(원문 비공개). 성장 지표·배지·연속 기록은 T-45·T-46 계산 계층을 쓴다.
 - `summary`는 조회 시마다 AI 요약을 호출해 채운다(저장·캐시 없음). 이번 기간에 종료 세션이 있는 영역마다 `/internal/v1/summary`를 병렬로 호출한다. 종료 세션 기록이 없으면 `insufficient`(AI 미호출), 전체 상한 `SUMMARY_DEADLINE_SECONDS`=25초 초과나 AI·검증(S1~S3) 실패가 하나라도 있으면 `unavailable`(리포트는 200, 부분 결과 없음), 그 외 `ok`다(ADR-0020). 상한을 넘어도 이미 보낸 AI 호출은 AI 클라이언트 시간 초과까지 백그라운드에서 끝난다. 기록 부족 기준(종료 세션 1개)은 Architecture A-18 가정값이다(PRD OQ 58 미결).
 
-**믿는 사람 연락 기록 A14 (T-40) — PR #32, dev 미병합** — 위 "현재 상태"의 `dev` 15490a5에는 포함되지 않는다. 브랜치 `claude/feat-t-40-trusted-contact` 커밋 774a9ab에만 있고 PR #32(base dev, 열림, 미병합)로 올라가 있다. 병합되면 아이 세션의 `POST /me/trusted-contact-events`(`{channel:"call"|"sms"}` → `{ok:true}`)가 `guardian_notices`에 `trusted_contact` 알림을 남기고 A11 `notices`에 보인다. 연락처 이름·번호·원문은 저장·노출하지 않고, 외부 전달은 PRD OQ 9 보류다. QA 989 passed(`.artifacts/verification/T-40/qa-20261115-1/`, 인용 — 이번 정리에서 다시 실행하지 않음). 한계: A14 호출 횟수 제한 없음(연타 시 알림 증가, 사용자 판단 대기), PostgreSQL `guardian_notices` CHECK 제약 동작 미검증(SQLite에서만 실행). 상세는 [docs/CHANGELOG.md](docs/CHANGELOG.md).
+**믿는 사람 연락 기록 A14 (T-40) — PR #32, dev에 병합됨(병합 커밋 909e758)** — 구현 커밋 774a9ab. 아이 세션의 `POST /me/trusted-contact-events`(`{channel:"call"|"sms"}` → `{ok:true}`)가 `guardian_notices`에 `trusted_contact` 알림을 남기고 A11 `notices`에 보인다. 연락처 이름·번호·원문은 저장·노출하지 않고, 외부 전달은 PRD OQ 9 보류다. QA 989 passed(`.artifacts/verification/T-40/qa-20261115-1/`, 인용 — 이번 정리에서 다시 실행하지 않음). 한계: A14 호출 횟수 제한 없음(연타 시 알림 증가, 사용자 판단 대기), PostgreSQL `guardian_notices` CHECK 제약 동작 미검증(SQLite에서만 실행). 상세는 [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 **AI 연결** — `AI_CLIENT=http`이면 `HttpPracticeAI`가 AI 서버를 호출한다(T-94). 방법·확인 범위·한계는 아래 "실제 AI 서버 연결".
 
