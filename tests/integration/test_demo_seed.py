@@ -332,6 +332,55 @@ def test_attach_seed_adds_records_to_given_child_and_keeps_live_rows(env):
     assert_demo_growth(body, previous_end="2026-11-06", today="2026-11-13")
 
 
+def test_reseed_keeps_demo_session_referenced_by_live_retry(env):
+    """T-97 — 실제(live) 다시 도전이 가리키는 예시 세션은 재적재 때 지우지 않는다
+    (사용자 결정 2026-11-14 "연결된 예시는 남기기 (추천)"). 나머지 예시 행은 평소대로 교체."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    with env.session_factory.begin() as db:
+        referenced = db.scalars(
+            select(PracticeSession).where(PracticeSession.origin == "demo_seed").order_by(PracticeSession.started_at)
+        ).first()
+        referenced_id = referenced.id
+        referenced_turns = db.scalar(select(func.count()).select_from(PracticeTurn).where(PracticeTurn.session_id == referenced_id))
+        referenced_cues = db.scalar(select(func.count()).select_from(CueResult).where(CueResult.session_id == referenced_id))
+        live = PracticeSession(
+            child_id=UUID(child_id), mode="retry", area="scam", subtype=None,
+            scenario_id=referenced.scenario_id, is_normal=False, target_cue_ids=[], variant={},
+            scenario_title="t", child_setup="s", ai_role_name="r", status="in_progress",
+            origin="live", started_at=NOW - timedelta(minutes=5), ended_at=None, retry_of=referenced_id,
+        )
+        db.add(live)
+        db.flush()
+        live_id = live.id
+
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+
+    with env.session_factory() as db:
+        assert db.get(PracticeSession, live_id).retry_of == referenced_id
+        kept = db.get(PracticeSession, referenced_id)
+        assert kept is not None and kept.origin == "demo_seed"
+        assert db.scalar(select(func.count()).select_from(PracticeTurn).where(PracticeTurn.session_id == referenced_id)) == referenced_turns
+        assert db.scalar(select(func.count()).select_from(CueResult).where(CueResult.session_id == referenced_id)) == referenced_cues
+        demo_count = db.scalar(
+            select(func.count()).select_from(PracticeSession).where(PracticeSession.origin == "demo_seed")
+        )
+    assert demo_count == 8 + 1  # 새로 넣은 8개 + 남긴 1개
+
+
+def test_reseed_without_live_references_still_replaces_all_demo_rows(env):
+    """T-97 경계 — live 참조가 없으면 기존처럼 예시 행을 모두 교체(행 수 불변)."""
+    client = env.client()
+    child_id, _ = register_family(client)
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+    before = env.counts()
+
+    seed_into_child(env.repository(), CONTENT, UUID(child_id), NOW)
+
+    assert env.counts() == before
+
+
 # ==== 경계: 재실행 안전(멱등)·날짜 재기준 ==================================================
 
 

@@ -69,16 +69,31 @@ class SqlAlchemyDemoSeedRepository:
         with self._session_factory.begin() as db:
             if db.get(Child, child_id) is None:
                 return False
-            old_ids = select(PracticeSession.id).where(
-                PracticeSession.child_id == child_id, PracticeSession.origin == DEMO_ORIGIN
-            )
-            db.execute(delete(CueResult).where(CueResult.session_id.in_(old_ids)))
-            db.execute(delete(PracticeTurn).where(PracticeTurn.session_id.in_(old_ids)))
-            db.execute(
-                delete(PracticeSession).where(
-                    PracticeSession.child_id == child_id, PracticeSession.origin == DEMO_ORIGIN
+            # 실제(live) 다시 도전이 가리키는 예시 세션은 남긴다 — 지우면 retry_of가 NULL이 된다
+            # (T-97, 사용자 결정 2026-11-14 "연결된 예시는 남기기 (추천)")
+            referenced_by_live = [
+                session_id
+                for session_id in db.scalars(
+                    select(PracticeSession.retry_of).where(
+                        PracticeSession.child_id == child_id,
+                        PracticeSession.origin != DEMO_ORIGIN,
+                        PracticeSession.retry_of.is_not(None),
+                    )
                 )
-            )
+            ]
+            old_ids = [
+                session_id
+                for session_id in db.scalars(
+                    select(PracticeSession.id).where(
+                        PracticeSession.child_id == child_id, PracticeSession.origin == DEMO_ORIGIN
+                    )
+                )
+                if session_id not in set(referenced_by_live)
+            ]
+            if old_ids:
+                db.execute(delete(CueResult).where(CueResult.session_id.in_(old_ids)))
+                db.execute(delete(PracticeTurn).where(PracticeTurn.session_id.in_(old_ids)))
+                db.execute(delete(PracticeSession).where(PracticeSession.id.in_(old_ids)))
             db.execute(
                 delete(GuardianNotice).where(
                     GuardianNotice.child_id == child_id, GuardianNotice.origin == DEMO_ORIGIN
