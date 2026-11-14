@@ -93,3 +93,28 @@ def test_fake_uses_content_scenario_clues():
             VariantRequest(scenario_id=scenario_id, platform="p", tone="t", context="c")
         ).variant
         assert [clue.id for clue in variant.clues] == [clue.id for clue in entry.scenario.clues]
+
+
+# ---- SummaryAI (T-76) --------------------------------------------------------
+
+
+def test_fake_setting_builds_fake_summary_ai():
+    from app.ai_client.factory import build_summary_ai
+    from app.ai_client.fake import FakeSummaryAI
+
+    assert isinstance(build_summary_ai(make_settings(ai_client="fake")), FakeSummaryAI)
+
+
+def test_http_setting_builds_http_summary_ai():
+    from app.ai_client.factory import build_summary_ai
+    from app.ai_client.http_client import HttpPracticeAI
+    from app.ai_client.ports import SummaryAI
+    from app.core.config import AIServiceSettings
+
+    ai_service = AIServiceSettings(_env_file=None, url="http://ai.test:8081", token="t", timeout_seconds=3.0)
+
+    summary_ai = build_summary_ai(make_settings(ai_client="http"), ai_service_settings=ai_service)
+
+    assert isinstance(summary_ai, HttpPracticeAI)
+    assert isinstance(summary_ai, SummaryAI)
+    summary_ai.close()

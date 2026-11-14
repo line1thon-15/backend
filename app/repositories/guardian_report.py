@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Child, CueResult, GuardianNotice, PracticeSession
 from app.domain.guardian_report import EndedSession
+from app.domain.guardian_summary import SummarySession
 from app.domain.weak_cues import CueOutcome
 from app.services.ports import GuardianNoticeRecord, GuardianReportRepository, ReportChild
 
@@ -56,6 +57,43 @@ class SqlAlchemyGuardianReportRepository(GuardianReportRepository):
                 session_id=row.session_id,
             )
             for row in rows
+        ]
+
+    def ended_summary_sessions(
+        self, child_id: UUID, ended_from: datetime, ended_to: datetime
+    ) -> list[SummarySession]:
+        """보호자 학습 요약 입력 (T-76) — 기간 안 종료 세션의 영역과 단서 판정 ID만 (대화 문장·선택지 없음)."""
+        session_query = select(PracticeSession.id, PracticeSession.area).where(
+            PracticeSession.child_id == child_id,
+            PracticeSession.status == "ended",
+            PracticeSession.ended_at >= ended_from,
+            PracticeSession.ended_at < ended_to,
+        )
+        cue_query = (
+            select(CueResult.session_id, CueResult.cue_id, CueResult.outcome)
+            .join(PracticeSession, PracticeSession.id == CueResult.session_id)
+            .where(
+                CueResult.child_id == child_id,
+                PracticeSession.child_id == child_id,
+                PracticeSession.status == "ended",
+                PracticeSession.ended_at >= ended_from,
+                PracticeSession.ended_at < ended_to,
+            )
+        )
+        with self._session_factory() as session:
+            sessions = session.execute(session_query).all()
+            cues = session.execute(cue_query).all()
+        found: dict[UUID, list[str]] = {}
+        missed: dict[UUID, list[str]] = {}
+        for row in cues:
+            (found if row.outcome == "found" else missed).setdefault(row.session_id, []).append(row.cue_id)
+        return [
+            SummarySession(
+                area=row.area,
+                found=tuple(found.get(row.id, ())),
+                missed=tuple(missed.get(row.id, ())),
+            )
+            for row in sessions
         ]
 
     def notices(self, child_id: UUID) -> list[GuardianNoticeRecord]:

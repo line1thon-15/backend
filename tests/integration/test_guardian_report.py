@@ -7,7 +7,7 @@
 
 연습 기록은 DB에 직접 넣는다(AI 호출 없음). DB는 테스트마다 pytest tmp_path SQLite 파일.
 `notices`는 guardian_notices 테이블에서 채운다(2026-11-12 사용자 답 "T-25에 포함 (추천)"). `metrics`는 T-46 계산 서비스
-결과(T-90 — 2026-11-12 사용자 답 "T-90에서 연결 (추천)", 시계 주입), `summary`는 DECISIONS #123 고정 임시값. 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
+결과(T-90 — 2026-11-12 사용자 답 "T-90에서 연결 (추천)", 시계 주입), `summary`는 T-76 보호자 학습 요약(AI 포트 Fake). 금지 키 `kind`는 `notices[]` 항목 안에서만 허용한다
 (2026-11-12 사용자 답 "금지 범위 좁히기 (추천)").
 """
 
@@ -21,7 +21,9 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import event
 
+from app.ai_client.ports import AIUnavailableError, SummaryRequest, SummaryResponse
 from app.api.report import GuardianReportResponse
+from app.content.loader import DEFAULT_DATA_DIR as DEFAULT_CONTENT_DIR
 from app.content.loader import load_content
 from app.core.config import Settings
 from app.db.base import Base
@@ -305,8 +307,12 @@ def test_report_placeholders_for_sources_not_on_this_branch(env, family):
         }
         for metric_id, label_text in METRIC_LABELS.items()
     ]
-    # 2026-11-12 사용자 답 "아직 기록이 적어요 (추천)" — T-76 전 임시값
-    assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
+    # T-76: DECISIONS #123 임시값(insufficient) → 실제 요약. 기본 Fake(AI_CLIENT=fake) 문장, 영역 이름은 콘텐츠 areas[].name
+    assert body["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [{"area": "scam", "sentences": ["[fake] 사기 연습을 1번 했어요."]}],
+    }
 
 
 def test_report_for_child_without_records_is_empty_progress(env, family):
@@ -626,3 +632,137 @@ def test_report_with_notices_has_kind_only_inside_notices(env, family):
 def test_forbidden_key_check_flags_kind_outside_notices(body):
     # 경우 2: notices 항목 바로 아래가 아닌 kind(와 notices 안의 다른 금지 키)는 잡아낸다
     assert forbidden_keys_found(body) != set()
+
+
+# ==== 보호자 학습 요약 (T-76 — F-47 ①②③⑥, DECISIONS #103·#114·#119) ====================
+
+
+class RecordingSummaryAI:
+    """요청을 기록하는 SummaryAI 대역. `fail_area`(영역 표시 이름)면 전송 실패를 낸다."""
+
+    def __init__(self, fail_area: str | None = None) -> None:
+        self.fail_area = fail_area
+        self.requests = []
+
+    def summary(self, request: SummaryRequest) -> SummaryResponse:
+        self.requests.append(request)
+        if request.area == self.fail_area:
+            raise AIUnavailableError("summary failed")
+        return SummaryResponse(summary=f"{request.area} 연습을 꾸준히 했어요.")
+
+
+@pytest.fixture
+def summary_env(tmp_path) -> Iterator[tuple[Env, RecordingSummaryAI]]:
+    ai = RecordingSummaryAI()
+    app = create_app(
+        Settings(_env_file=None, database_url=f"sqlite:///{(tmp_path / 'summary.db').as_posix()}", ai_client="fake"),
+        clock=lambda: NOW,
+        summary_ai=ai,
+    )
+    Base.metadata.create_all(app.state.engine)
+    with TestClient(app) as client:
+        yield Env(client), ai
+    app.state.engine.dispose()
+
+
+def area_name(area_id: str) -> str:
+    """콘텐츠 사본 ai/clues.json의 영역 표시 이름 (AI 계약 `area`)."""
+    data = json.loads((DEFAULT_CONTENT_DIR / "ai" / "clues.json").read_text(encoding="utf-8"))
+    return {item["id"]: item["name"] for item in data["areas"]}[area_id]
+
+
+def test_summary_items_per_area_with_records_in_period(summary_env):
+    env, ai = summary_env
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "found", "advance_payment": "missed"})
+    env.seed_session(child["child_id"], area="scam", ended_at=T0 + timedelta(hours=1), outcomes={"urgency": "found"})
+    env.seed_session(child["child_id"], area="friend_pressure", outcomes={"guilt_pressure": "missed"})
+    # 이번 기간 밖(한국 11-05) — 요약 입력에서 빠짐 / 멈춘 연습 — 빠짐 (F-11 ⑧)
+    env.seed_session(child["child_id"], area="identity_lending", ended_at=datetime(2026, 11, 5, 3, 0, tzinfo=timezone.utc))
+    env.seed_session(child["child_id"], area="scam", status="stopped", outcomes={"keep_secret": "missed"})
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [
+            {"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]},
+            {"area": "friend_pressure", "sentences": [f"{area_name('friend_pressure')} 연습을 꾸준히 했어요."]},
+        ],
+    }
+    assert [r.model_dump() for r in ai.requests] == [
+        {
+            "area": area_name("scam"),
+            "practice_count": 2,
+            "found_clues": [label("urgency")],
+            "missed_clues": [label("advance_payment")],
+            "growth_level": None,
+        },
+        {
+            "area": area_name("friend_pressure"),
+            "practice_count": 1,
+            "found_clues": [],
+            "missed_clues": [label("guilt_pressure")],
+            "growth_level": None,
+        },
+    ]
+
+
+def test_summary_requests_carry_no_conversation_text(summary_env):
+    # F-47 ③ — AI에 넘기는 값에 대화 문장·선택지·변형·감정 값 0건
+    env, ai = summary_env
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], outcomes={"urgency": "missed"})
+
+    env.report(child["child_id"], guardian)
+
+    assert len(ai.requests) == 1
+    dumped = json.dumps([r.model_dump() for r in ai.requests], ensure_ascii=False)
+    assert MARKER not in dumped
+    assert set(ai.requests[0].model_dump()) == {"area", "practice_count", "found_clues", "missed_clues", "growth_level"}
+
+
+def test_summary_failure_keeps_rest_of_report(summary_env):
+    env, ai = summary_env
+    ai.fail_area = area_name("friend_pressure")
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "missed"})
+    env.seed_session(child["child_id"], area="friend_pressure", outcomes={"guilt_pressure": "missed"})
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+    assert body["areas"][0]["practice_count"] == 1
+    assert body["child"]["nickname"] == "하늘이"
+
+
+def test_summary_without_records_in_period_is_insufficient(summary_env):
+    env, ai = summary_env
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], ended_at=datetime(2026, 11, 1, 3, 0, tzinfo=timezone.utc))
+
+    body = env.report(child["child_id"], guardian).json()
+
+    assert body["summary"] == {"status": "insufficient", "unit": "area", "items": []}
+    assert ai.requests == []
+
+
+def test_summary_not_generated_for_other_guardians_child(summary_env):
+    env, ai = summary_env
+    owner = env.new_guardian()
+    child = env.new_child(owner)
+    env.seed_session(child["child_id"], outcomes={"urgency": "missed"})
+    stranger = env.new_guardian()
+
+    response = env.report(child["child_id"], stranger)
+
+    assert response.status_code == 404
+    assert ai.requests == []
