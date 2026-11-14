@@ -13,8 +13,10 @@ from dataclasses import dataclass
 
 # 기록 부족 기준 — Architecture A-18 [가정] 기본값 1 (PRD OQ 58 미결, 답에 따라 이 값만 교체)
 SUMMARY_MIN_ENDED_SESSIONS = 1
-# S3 길이 상한(설정 상수) — 값은 설계에 없음. AI 쪽 app/summary.py MAX_CHARS = 200과 같게 둠
-# (2026-11-14 메인 세션에 확인 요청 중 — 답에 따라 이 값만 교체)
+# S3 길이 상한(설정 상수) — AI 쪽 app/summary.py MAX_CHARS = 200과 같음.
+# 2026-11-14 사용자 확정(메인 세션 전달) — 질문 원문 "① 요약 길이 상한 200자(AI 서버 상한과 같음) ② 놓친 단서 목록도
+# 찾은 단서처럼 중복 제거 ③ 단서 목록은 콘텐츠(clues.json) 순서로 고정. 이대로 진행할까요?", 답 원문 "추천안 3개 모두 (추천)".
+# ②③은 아래 summary_inputs에 있다.
 SUMMARY_MAX_CHARS = 200
 
 _NUMBER = re.compile(r"\d+")
@@ -45,8 +47,9 @@ def summary_inputs(
     """영역마다 요약 입력. 결과 순서 = `areas` 순서, 기록 없는 영역은 빠진다.
 
     종료 세션 수가 `SUMMARY_MIN_ENDED_SESSIONS` 미만이면 None(기록 부족 — AI 미호출).
-    단서 목록은 중복 제거, 순서 = `cue_order`(콘텐츠 순서). `cue_order`에 없는 단서는 이름을 보일 수 없어 뺀다.
-    한 기간에 찾기도·놓치기도 한 단서는 두 목록에 모두 들어간다(DECISIONS #103 문구 그대로).
+    단서 목록은 찾은·놓친 모두 중복 제거, 순서 = `cue_order`(콘텐츠 clues.json 순서) — 2026-11-14 사용자 확정
+    ②③(위 SUMMARY_MAX_CHARS 주석의 원문). `cue_order`에 없는 단서는 이름을 보일 수 없어 뺀다.
+    한 기간에 찾기도·놓치기도 한 단서는 두 목록에 모두 들어간다 — #103 해석(DECISIONS #103 문구 그대로 읽음, 사용자 질문 범위 밖).
     """
     counts: dict[str, int] = {}
     found: dict[str, set[str]] = {}

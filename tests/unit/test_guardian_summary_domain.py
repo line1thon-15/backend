@@ -2,7 +2,8 @@
 
 근거: Architecture.md:363 `POST /internal/v1/summary` 행(영역마다 1회, 검증 S1~S3), :274 GuardianSummaryView,
 A-18(가정 `SUMMARY_MIN_ENDED_SESSIONS` = 1), DECISIONS #103·#114(영역별, found_clues 중복 제거).
-미정 값(메인 세션에 질문 중 — 2026-11-14): S3 상한 200자, missed_clues 중복 제거, 단서 순서 = 콘텐츠 순서.
+2026-11-14 사용자 확정(메인 세션 전달, 답 원문 "추천안 3개 모두 (추천)"): ① S3 상한 200자 ② missed_clues도 중복 제거
+③ 단서 순서 = 콘텐츠(clues.json) 순서. 찾기도·놓치기도 한 단서는 두 목록 모두 — #103 해석(질문 범위 밖).
 """
 
 import pytest
@@ -68,6 +69,16 @@ def test_found_and_missed_are_deduplicated_and_in_content_order():
 
     assert item.found_cue_ids == ("advance_payment", "urgency")
     assert item.missed_cue_ids == ("advance_payment", "keep_secret")
+
+
+def test_cue_found_and_missed_in_period_is_in_both_lists():
+    # #103 해석 — "기간 안 찾은 단서 목록"·"놓친 단서 목록"을 문구 그대로 읽음 (사용자 질문 범위 밖)
+    sessions = [session("scam", missed=["urgency"]), session("scam", found=["urgency"])]
+
+    (item,) = summary_inputs(sessions, AREAS, CUE_ORDER)
+
+    assert item.found_cue_ids == ("urgency",)
+    assert item.missed_cue_ids == ("urgency",)
 
 
 def test_session_without_cues_still_counts_as_practice():
