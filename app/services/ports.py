@@ -25,6 +25,25 @@ class ChildLoginCredentials:
 
 
 @dataclass(frozen=True)
+class GuardianIdentity:
+    guardian_id: UUID
+    email: str
+
+
+@dataclass(frozen=True)
+class ChildIdentity:
+    nickname: str
+    grade: str
+    onboarding_completed: bool
+    font_scale: str
+    high_contrast: bool
+    tts_enabled: bool
+
+
+CurrentIdentity = GuardianIdentity | ChildIdentity
+
+
+@dataclass(frozen=True)
 class ChildRegistrationRecord:
     child_id: UUID
     nickname: str
@@ -68,6 +87,12 @@ class AuthRepository(Protocol):
         token_hash: str,
         now: datetime,
     ) -> UUID | None: ...
+
+    def find_current_user_for_active_session(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> CurrentIdentity | None: ...
 
     def find_child_by_link_code(
         self,

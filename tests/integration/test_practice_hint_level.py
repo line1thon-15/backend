@@ -16,7 +16,7 @@ import pytest
 
 from app.domain.hint_level import HINT_MAX
 from tests.integration.test_practice_sessions import SCENARIO_CLUES, choice_id_of
-from tests.integration.test_practice_weak_priority import SCAM, env, unique_cue  # noqa: F401 — fixture 재사용
+from tests.integration.test_practice_weak_priority import SCAM, env, scenarios_with  # noqa: F401 — fixture 재사용
 
 ALL_SCAM_CUES = sorted({c for sid in SCAM for c in SCENARIO_CLUES[sid]})
 
@@ -55,26 +55,28 @@ def test_all_target_cues_found_hint_max_times_is_zero(env):
 
 def test_largest_cue_level_wins_when_one_cue_still_needs_help(env):
     # 다른 단서는 모두 0이어도 놓친 단서 하나가 있으면 그 단서의 단계(HINT_MAX)를 저장 — "가장 큰 값"
-    # (그 단서를 2번 놓쳐 약점 우선으로 그 시나리오가 확정적으로 출제된다)
-    target = SCAM[0]
-    cue = unique_cue(target)
+    # (그 단서를 2번 놓쳐 약점 우선으로 그 단서를 가진 시나리오가 확정적으로 출제된다 — T-30부터 사기 영역에
+    # 시나리오 고유 단서가 없어 "그 단서를 가진 시나리오 집합"으로 확인)
+    cue = ALL_SCAM_CUES[0]
+    assert scenarios_with(cue) != set(SCAM)
     child_id = env.login_child()
     found_everywhere(env, child_id, HINT_MAX)
     env.past_session(child_id, {cue: "missed"})
     env.past_session(child_id, {cue: "missed"})
     view = env.started()
     row = env.session_row(view["session_id"])
-    assert row.scenario_id == target
+    assert row.scenario_id in scenarios_with(cue)
     assert row.hint_level == HINT_MAX
 
 
 def test_shared_cue_missed_gives_full_hint_for_any_scenario(env):
-    # 두 scam 시나리오 공통 단서를 마지막에 놓치면 어느 시나리오가 나와도 HINT_MAX
-    shared = sorted(set(SCENARIO_CLUES[SCAM[0]]) & set(SCENARIO_CLUES[SCAM[1]]))
-    assert shared
+    # 모든 scam 시나리오에 걸치는 단서들을 마지막에 한 번씩 놓치면(1번이라 약점 아님) 어느 시나리오가 나와도 HINT_MAX
+    # (T-30부터 사기 4개 시나리오 공통 단서가 하나도 없어 단서 2개로 모든 시나리오를 덮는다)
+    covering = ["keep_secret", "urgency"]
+    assert all(set(covering) & set(SCENARIO_CLUES[sid]) for sid in SCAM)
     child_id = env.login_child()
     found_everywhere(env, child_id, HINT_MAX)
-    env.past_session(child_id, {shared[0]: "missed"})
+    env.past_session(child_id, {cue: "missed" for cue in covering})
     assert stored_hint(env, env.started()) == HINT_MAX
 
 

@@ -50,8 +50,22 @@ def test_real_content_loads_with_expected_areas_and_scenarios() -> None:
     content = _load(DATA_DIR)
 
     assert content.area_ids == ("scam", "identity_lending", "friend_pressure")
-    assert set(content.scenarios) == {"scam_dm_parttime_01", "scam_jobboard_link_01"}
-    assert content.scenarios["scam_dm_parttime_01"].area == "scam"
+    # T-30: ai dev 8d900d1 — 영역마다 4개 (F-15 1차 3개 영역)
+    areas = {sid: entry.area for sid, entry in content.scenarios.items()}
+    assert areas == {
+        "scam_dm_parttime_01": "scam",
+        "scam_jobboard_link_01": "scam",
+        "scam_game_item_01": "scam",
+        "scam_allowance_event_01": "scam",
+        "identity_dm_account_01": "identity_lending",
+        "identity_phone_senior_01": "identity_lending",
+        "identity_openchat_card_01": "identity_lending",
+        "identity_game_account_01": "identity_lending",
+        "friend_homework_01": "friend_pressure",
+        "friend_money_01": "friend_pressure",
+        "friend_game_skin_01": "friend_pressure",
+        "friend_cover_lie_01": "friend_pressure",
+    }
     assert "too_good_pay" in content.clue_ids
     assert set(content.scenario_meta) == set(content.scenarios)
     assert content.safety_stop.message.strip() != ""
@@ -66,6 +80,26 @@ def test_high_paying_job_scenarios_are_limited_to_high_school() -> None:
             assert meta.min_grade == "H1", scenario_id
 
 
+def test_only_high_paying_job_scenarios_have_grade_limit() -> None:
+    # T-30: 고수익 알바 2개만 min_grade H1, 나머지는 학년 제한 없음. 하위 유형(F-14)은 사기 영역에만
+    content = _load(DATA_DIR)
+
+    limits = {sid: meta.min_grade for sid, meta in content.scenario_meta.items() if meta.min_grade}
+    assert limits == {"scam_dm_parttime_01": "H1", "scam_jobboard_link_01": "H1"}
+    subtypes = {sid: meta.subtype for sid, meta in content.scenario_meta.items()}
+    assert subtypes == {
+        "scam_dm_parttime_01": "high_paying_job",
+        "scam_jobboard_link_01": "high_paying_job",
+        "scam_game_item_01": "game_item",
+        "scam_allowance_event_01": "allowance",
+        **{
+            sid: None
+            for sid, entry in content.scenarios.items()
+            if entry.area in ("identity_lending", "friend_pressure")
+        },
+    }
+
+
 def test_every_scenario_platform_has_an_app_type() -> None:
     content = _load(DATA_DIR)
     app_type_ids = {item.id for item in content.platform_app_types.app_types}
@@ -77,14 +111,21 @@ def test_every_scenario_platform_has_an_app_type() -> None:
 
 def test_ai_copy_matches_pinned_source_hashes() -> None:
     source = (AI_DIR / "SOURCE.txt").read_text(encoding="utf-8")
-    assert "331d2c63481ea212105c466caba86a28acd9dea7" in source
+    assert "8d900d1bb7167d71f06329dc0a00aab4fef2ebd0" in source
     lf_section = source.split("SHA-256 (LF 기준", 1)[1].split("참고 —", 1)[0]
     expected = dict(
         (name, digest)
         for digest, name in re.findall(r"^([0-9a-f]{64}) \*(\S+)$", lf_section, re.M)
     )
 
-    assert set(expected) == {"clues.json", "scenarios/scam.json"}
+    assert set(expected) == {
+        "clues.json",
+        "scenarios/scam.json",
+        "scenarios/identity_lending.json",
+        "scenarios/friend_pressure.json",
+    }
+    copied = {"clues.json", *(f"scenarios/{p.name}" for p in (AI_DIR / "scenarios").glob("*.json"))}
+    assert copied == set(expected)
     for name, digest in expected.items():
         raw = (AI_DIR / name).read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(raw).hexdigest() == digest, name
@@ -263,7 +304,9 @@ def test_invalid_json_fails(data_dir: Path) -> None:
 
 
 def test_missing_scenarios_folder_content_fails(data_dir: Path) -> None:
-    (data_dir / "ai" / "scenarios" / "scam.json").unlink()
+    # T-30부터 영역별 파일 3개 — 폴더 안 시나리오 파일을 모두 지운다
+    for path in (data_dir / "ai" / "scenarios").glob("*.json"):
+        path.unlink()
     _expect_failure(data_dir, "scenarios")
 
 
@@ -276,10 +319,9 @@ def test_create_app_loads_content_into_state(sqlite_url: str) -> None:
 
     app = create_app(Settings(_env_file=None, database_url=sqlite_url, ai_client="fake"))
     try:
-        assert set(app.state.content.scenarios) == {
-            "scam_dm_parttime_01",
-            "scam_jobboard_link_01",
-        }
+        scenarios = app.state.content.scenarios
+        assert len(scenarios) == 12
+        assert {"scam_dm_parttime_01", "identity_dm_account_01", "friend_homework_01"} <= set(scenarios)
     finally:
         app.state.engine.dispose()
 
