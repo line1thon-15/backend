@@ -18,6 +18,7 @@ from app.ai_client.ports import (
     FeedbackResponse,
     JudgeRequest,
     JudgeResponse,
+    OpeningChoices,
     StartRequest,
     StartResponse,
     SummaryRequest,
@@ -46,6 +47,7 @@ class FakePracticeAI:
         clue_ids: tuple[str, ...] = DEFAULT_CLUE_IDS,
         turn_status: str = "ok",
         scenario_clue_ids: Mapping[str, Sequence[str]] | None = None,
+        opening_choices: OpeningChoices | None = None,
     ) -> None:
         if not clue_ids:
             raise ValueError("clue_ids must not be empty")
@@ -58,6 +60,8 @@ class FakePracticeAI:
         self.clue_ids = tuple(clue_ids)
         self.turn_status = turn_status
         self.scenario_clue_ids = mapping
+        # variant 응답에 실을 시작 선택지 — None이면 이 필드가 없는 변형 (T-100, ADR-0022 규칙 5)
+        self.opening_choices = opening_choices
 
     def _scenario_clue_ids(self, variant: Variant | None) -> list[str]:
         return [clue.id for clue in variant.clues] if variant else list(self.clue_ids)
@@ -83,6 +87,7 @@ class FakePracticeAI:
                     self.scenario_clue_ids.get(request.scenario_id, self.clue_ids)
                 )
             ],
+            opening_choices=self.opening_choices,
         )
         return VariantResponse(variant=variant, source="model")
 

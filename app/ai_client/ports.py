@@ -1,6 +1,7 @@
 """백엔드–AI 내부 API 포트와 DTO (Architecture "1차 내부 API v1", DECISIONS #96·#97·#104·#112·#115, ADR-0017).
 
-필드는 AI 계약(ai 저장소 feature/ai 331d2c6 `contracts/`)과 같다. 응답 검증 규칙(VA·ST·TU·J'·V'·S)은
+필드는 AI 계약(ai 저장소 feature/ai 331d2c6 `contracts/`)과 같고, T-100에서 ai dev 8d900d1의
+`Variant.opening_choices`를 더했다(ADR-0022). 응답 검증 규칙(VA·ST·TU·J'·V'·S)은
 이 모델이 아니라 HttpPracticeAI·services 쪽 몫이다(T-15·T-16·T-76).
 """
 
@@ -66,6 +67,13 @@ class ClueVariant(_InboundModel):
     reveal_line: str = Field(min_length=1, max_length=200)
 
 
+class OpeningChoices(_InboundModel):
+    # 첫 단서에 맞춘 시작 선택지 — AI 스키마와 같은 1~60자 (ADR-0022 규칙 1, DECISIONS #137)
+    correct: str = Field(min_length=1, max_length=60)
+    doubtful: str = Field(min_length=1, max_length=60)
+    other: str = Field(min_length=1, max_length=60)
+
+
 class Variant(_InboundModel):
     # 양방향: variant 응답으로 받아 그대로 저장하고 같은 세션의 이후 요청에 그대로 보낸다 (#98).
     base_scenario_id: str = Field(min_length=1, max_length=64)
@@ -77,6 +85,8 @@ class Variant(_InboundModel):
     opening_line: str = Field(min_length=1, max_length=200)
     ai_role: AiRole
     clues: list[ClueVariant] = Field(min_length=1, max_length=10)
+    # 선택 필드 — 없으면 None, 요청에는 null로 실린다(키 생략 아님, #138). start 선택지 일치는 검증하지 않는다 (규칙 4)
+    opening_choices: OpeningChoices | None = None
 
 
 class ClueResult(_InboundModel):
