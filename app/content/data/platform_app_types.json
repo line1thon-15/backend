@@ -13,6 +13,8 @@
     {"platform_id": "open_chat", "app_type": "messenger"},
     {"platform_id": "text_message", "app_type": "sms"},
     {"platform_id": "friend_intro", "app_type": "messenger"},
-    {"platform_id": "job_board", "app_type": "job_site"}
+    {"platform_id": "job_board", "app_type": "job_site"},
+    {"platform_id": "messenger", "app_type": "messenger"},
+    {"platform_id": "game_chat", "app_type": "game"}
   ]
 }
