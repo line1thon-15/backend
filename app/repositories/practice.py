@@ -3,6 +3,7 @@
 A17의 저장은 메서드 하나 = 한 트랜잭션이다(DECISIONS #82·#85). 서비스는 AI 호출과 응답 검증이 성공한 뒤에만 부른다.
 """
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -10,7 +11,14 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Child, ChildSettings, CueResult, PracticeSession, PracticeTurn
+from app.db.models import (
+    DRAW_INDEX_UNIQUE_NAME,
+    Child,
+    ChildSettings,
+    CueResult,
+    PracticeSession,
+    PracticeTurn,
+)
 from app.services.ports import (
     EndedCueOutcome,
     EndedSessionStats,
@@ -24,6 +32,16 @@ from app.services.ports import (
     PracticeStateConflict,
     PracticeTurnRecord,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _is_draw_index_conflict(exc: IntegrityError) -> bool:
+    """순번 고유 인덱스 위반인가. PostgreSQL은 제약 이름, SQLite는 열 목록으로 알린다."""
+    message = str(exc.orig)
+    return DRAW_INDEX_UNIQUE_NAME in message or (
+        "practice_sessions.child_id, practice_sessions.origin, practice_sessions.draw_index" in message
+    )
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -83,48 +101,60 @@ class SqlAlchemyPracticeRepository(PracticeRepository):
                 latest[scenario_id] = (variant["platform"], variant["tone"])
         return latest
 
-    def count_new_draws(self, child_id: UUID) -> int:
-        with self._session_factory() as db:
-            return db.scalar(
-                select(func.count())
-                .select_from(PracticeSession)
-                .where(
-                    PracticeSession.child_id == child_id,
-                    PracticeSession.mode != "retry",
-                )
-            )
-
     def create_session(
         self,
         session: NewPracticeSession,
         first_turn: NewPracticeTurn,
     ) -> UUID:
-        row = PracticeSession(
-            child_id=session.child_id,
-            mode=session.mode,
-            area=session.area,
-            subtype=session.subtype,
-            scenario_id=session.scenario_id,
-            is_normal=session.is_normal,
-            target_cue_ids=list(session.target_cue_ids),
-            variant=session.variant,
-            scenario_title=session.scenario_title,
-            child_setup=session.child_setup,
-            ai_role_name=session.ai_role_name,
-            retry_of=session.retry_of,
-            draw_index=session.draw_index,
-            hint_level=session.hint_level,
-            status="in_progress",
-            normal_outcome=None,
-            origin="live",
-            started_at=session.started_at,
-            ended_at=None,
-        )
+        try:
+            return self._insert_session(session, first_turn)
+        except IntegrityError as exc:
+            # 순번 고유 인덱스 위반만 1회 재시도 — 순번만 다시 계산, AI는 다시 부르지 않는다(입력 그대로).
+            # 재시도도 위반이면 그대로 올린다(→ 500 INTERNAL). 다른 위반은 재시도하지 않는다 (ADR-0023 규칙 4)
+            if not session.is_new_draw or not _is_draw_index_conflict(exc):
+                raise
+            logger.info("practice draw_index conflict, retrying once")
+            return self._insert_session(session, first_turn)
+
+    def _insert_session(self, session: NewPracticeSession, first_turn: NewPracticeTurn) -> UUID:
         with self._session_factory.begin() as db:
+            row = PracticeSession(
+                child_id=session.child_id,
+                mode=session.mode,
+                area=session.area,
+                subtype=session.subtype,
+                scenario_id=session.scenario_id,
+                is_normal=session.is_normal,
+                target_cue_ids=list(session.target_cue_ids),
+                variant=session.variant,
+                scenario_title=session.scenario_title,
+                child_setup=session.child_setup,
+                ai_role_name=session.ai_role_name,
+                retry_of=session.retry_of,
+                # 순번은 이 트랜잭션 안에서 정한다 (ADR-0023 규칙 3) — 다시 도전은 NULL
+                draw_index=self._next_draw_index(db, session.child_id) if session.is_new_draw else None,
+                hint_level=session.hint_level,
+                status="in_progress",
+                normal_outcome=None,
+                origin="live",
+                started_at=session.started_at,
+                ended_at=None,
+            )
             db.add(row)
             db.flush()
             db.add(_turn_row(row.id, first_turn))
             return row.id
+
+    def _next_draw_index(self, db: Session, child_id: UUID) -> int:
+        """그 아이 `origin = 'live'` 비NULL `draw_index` 최댓값 + 1(없으면 1). 예시 행은 세지 않는다 (ADR-0023 규칙 2)."""
+        current = db.scalar(
+            select(func.max(PracticeSession.draw_index)).where(
+                PracticeSession.child_id == child_id,
+                PracticeSession.origin == "live",
+                PracticeSession.draw_index.is_not(None),
+            )
+        )
+        return 1 if current is None else current + 1
 
     def get_session(
         self,

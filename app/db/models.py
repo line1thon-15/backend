@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     SmallInteger,
@@ -171,6 +172,9 @@ class AuthSession(Base):
     )
 
 
+DRAW_INDEX_UNIQUE_NAME = "uq_practice_sessions_child_origin_draw"
+
+
 class PracticeSession(Base):
     """연습 세션 (Architecture 엔티티 practice_sessions — 2026-11-11 AI 계약 채택 변경 포함, DECISIONS #98·#99)."""
 
@@ -194,6 +198,9 @@ class PracticeSession(Base):
             name="ck_practice_sessions_normal_outcome",
         ),
         CheckConstraint("origin IN ('live', 'demo_seed')", name="ck_practice_sessions_origin"),
+        # 새 출제 순번은 아이·출처별로 하나 (T-99 ①, DECISIONS #140, ADR-0023 규칙 1). 다시 도전(NULL)은 두 DB 모두
+        # 고유 인덱스에서 서로 다른 값으로 보므로 자동 제외. Alembic 20261115_06과 같은 정의
+        Index(DRAW_INDEX_UNIQUE_NAME, "child_id", "origin", "draw_index", unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)

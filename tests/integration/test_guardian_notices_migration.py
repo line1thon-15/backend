@@ -46,11 +46,13 @@ def migrated(alembic_env):
     return engine
 
 
-def test_head_is_t25_revision_after_practice_tables(alembic_env):
+def test_t25_revision_is_in_history_after_practice_tables(alembic_env):
+    # head는 이후 리비전(T-99 draw_index 고유 인덱스 20261115_06)으로 바뀐다 — T-25 리비전이 이력에 있고
+    # practice_tables 다음인지만 본다 (T-15의 같은 처리를 따름)
     config, _ = alembic_env
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_current_head() == REVISION
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
     assert script.get_revision(REVISION).down_revision == PREVIOUS_REVISION
 
 
