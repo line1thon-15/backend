@@ -13,6 +13,7 @@
 
 import json
 import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -859,3 +860,182 @@ def test_summary_http_calls_are_concurrent_through_shared_client(summary_app_fac
             {"area": "friend_pressure", "sentences": [f"{area_name('friend_pressure')} 연습을 꾸준히 했어요."]},
         ],
     }
+
+
+# ==== T-99 사후 리뷰 권고 (PR #31·#32) =====================================================
+# 알림 정렬 기준: Architecture에는 `notices` 정렬 규칙 원문이 없다(NoticeView 행은 필드만 정함). 기준은 T-25 구현이
+# 정한 규칙 — Tasks T-25 근거 원문 "알림 정렬 (제가 정한 규칙) | `occurred_at` 최신 순, 같은 시각이면
+# `notice_id`(UUID 정수값)가 큰 순"(사용자 확정 기록 없음), 코드 app/repositories/guardian_report.py `notices`.
+
+
+def test_report_mixed_safety_and_trusted_contact_notices_order(env, family):
+    # T-99 ③ (PR #32 후속 권고 3): kind와 무관하게 occurred_at 최신 순, 같은 시각이면 notice_id 큰 순
+    guardian, child = family
+    cid = child["child_id"]
+    contact = {"kind": "trusted_contact", "level": None, "area": None, "origin": "live"}
+    oldest_contact = env.seed_notice(cid, occurred_at=T0 - timedelta(hours=1), channel="call", **contact)
+    safety_demo = env.seed_notice(cid, occurred_at=T0, level="red", area="scam", origin="demo_seed")
+    middle_contact = env.seed_notice(cid, occurred_at=T0 + timedelta(hours=1), channel="sms", **contact)
+    tie_safety = env.seed_notice(
+        cid, occurred_at=T0 + timedelta(hours=2), level="yellow", area="friend_pressure", origin="live"
+    )
+    tie_contact = env.seed_notice(cid, occurred_at=T0 + timedelta(hours=2), channel="call", **contact)
+
+    response = env.report(cid, guardian)
+
+    assert response.status_code == 200, response.text
+    notices = response.json()["notices"]
+    tie_first, tie_second = sorted([tie_safety, tie_contact], key=lambda u: u.int, reverse=True)
+    assert [n["notice_id"] for n in notices] == [
+        str(tie_first),
+        str(tie_second),
+        str(middle_contact),
+        str(safety_demo),
+        str(oldest_contact),
+    ]
+    by_id = {n["notice_id"]: n for n in notices}
+    assert by_id[str(tie_safety)] == {
+        "notice_id": str(tie_safety),
+        "kind": "safety",
+        "occurred_at": "2026-11-10T17:00:00Z",
+        "level": "yellow",
+        "area": "friend_pressure",
+        "channel": None,
+    }
+    assert by_id[str(tie_contact)] == {
+        "notice_id": str(tie_contact),
+        "kind": "trusted_contact",
+        "occurred_at": "2026-11-10T17:00:00Z",
+        "level": None,
+        "area": None,
+        "channel": "call",
+    }
+    assert all(set(n) == NOTICE_KEYS for n in notices)
+    assert forbidden_keys_found(response.json()) == set()
+
+
+class TimedSummaryAI:
+    """`delay`초 뒤 응답한다. 호출 시작 시각(단조 시계)을 기록한다."""
+
+    def __init__(self, delay: float) -> None:
+        self.delay = delay
+        self.call_started: list[float] = []
+
+    def summary(self, request: SummaryRequest) -> SummaryResponse:
+        self.call_started.append(time.monotonic())
+        time.sleep(self.delay)
+        return SummaryResponse(summary=f"{request.area} 연습을 꾸준히 했어요.")
+
+
+def _slow_accept_summary(monkeypatch, seconds: float) -> list[float]:
+    """요청 스레드의 검증(accept_summary)을 `seconds`초 늦춘다. 반환값 = 검증이 끝난 시각(단조 시계) 기록."""
+    original = guardian_report_service_module.accept_summary
+    finished: list[float] = []
+
+    def slow(text, input_values):
+        time.sleep(seconds)
+        result = original(text, input_values)
+        finished.append(time.monotonic())
+        return result
+
+    monkeypatch.setattr(guardian_report_service_module, "accept_summary", slow)
+    return finished
+
+
+def seed_one_area(env: Env):
+    guardian = env.new_guardian()
+    child = env.new_child(guardian)
+    env.seed_session(child["child_id"], area="scam", outcomes={"urgency": "missed"})
+    return guardian, child
+
+
+def test_summary_arrives_before_deadline_but_validation_ends_after_is_ok(summary_app_factory, monkeypatch):
+    # T-99 ⑤ (DECISIONS #141 (가)): 상한은 AI 응답 도착 기준 — 상한 직전 도착 + 검증이 상한을 넘겨 끝나도 ok
+    deadline = 0.5
+    monkeypatch.setattr(guardian_report_service_module, "SUMMARY_DEADLINE_SECONDS", deadline)
+    finished = _slow_accept_summary(monkeypatch, seconds=0.6)
+    ai = TimedSummaryAI(delay=0.3)
+    env = summary_app_factory(ai)
+    guardian, child = seed_one_area(env)
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [{"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]}],
+    }
+    # 경계 조건이 실제로 성립했는지: 응답은 상한 안(0.3초 지연), 검증 종료는 호출 시작(≥ 상한 측정 시작)부터 상한 초과
+    assert len(ai.call_started) == 1 and len(finished) == 1
+    assert ai.delay < deadline
+    assert finished[0] - ai.call_started[0] > deadline
+
+
+def test_summary_completed_within_deadline_is_ok(summary_app_factory, monkeypatch):
+    # T-99 ⑤: 도착·검증 모두 상한 안 → ok
+    deadline = 2.0
+    monkeypatch.setattr(guardian_report_service_module, "SUMMARY_DEADLINE_SECONDS", deadline)
+    finished = _slow_accept_summary(monkeypatch, seconds=0.0)
+    ai = TimedSummaryAI(delay=0.05)
+    env = summary_app_factory(ai)
+    guardian, child = seed_one_area(env)
+
+    response = env.report(child["child_id"], guardian)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"] == {
+        "status": "ok",
+        "unit": "area",
+        "items": [{"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]}],
+    }
+    assert len(finished) == 1
+    assert finished[0] - ai.call_started[0] < deadline
+
+
+def test_summary_over_deadline_keeps_trusted_contact_notices(summary_app_factory, monkeypatch):
+    # T-99 ⑥ (PR #31 후속 권고 3): 연락 알림이 있는 아이 — 요약 상한 초과여도 A11 200, notices 그대로
+    monkeypatch.setattr(guardian_report_service_module, "SUMMARY_DEADLINE_SECONDS", 0.2)
+    ai = BlockingSummaryAI(block_area=area_name("friend_pressure"))
+    try:
+        env = summary_app_factory(ai)
+        guardian, child = seed_two_areas(env)
+        contact = env.seed_notice(
+            child["child_id"],
+            kind="trusted_contact",
+            occurred_at=T0 + timedelta(hours=1),
+            level=None,
+            area=None,
+            channel="sms",
+            origin="live",
+        )
+        safety = env.seed_notice(child["child_id"], occurred_at=T0, level="red", area="scam", origin="live")
+
+        response = env.report(child["child_id"], guardian)
+        still_blocked = area_name("friend_pressure") not in ai.finished
+    finally:
+        ai.gate.set()
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["summary"] == {"status": "unavailable", "unit": "area", "items": []}
+    assert body["notices"] == [
+        {
+            "notice_id": str(contact),
+            "kind": "trusted_contact",
+            "occurred_at": "2026-11-10T16:00:00Z",
+            "level": None,
+            "area": None,
+            "channel": "sms",
+        },
+        {
+            "notice_id": str(safety),
+            "kind": "safety",
+            "occurred_at": "2026-11-10T15:00:00Z",
+            "level": "red",
+            "area": "scam",
+            "channel": None,
+        },
+    ]
+    assert body["child"]["nickname"] == "하늘이"
+    assert still_blocked
