@@ -217,6 +217,12 @@ QUERY_TARGET_BYPASS_URLS = [
     f"{LOCAL_CI_URL}?dbname=neondb",
     f"{LOCAL_CI_URL}?sslmode=disable&HOST=prod.example.com",  # 대소문자 무관
     f"{LOCAL_CI_URL}?host=localhost",  # 값이 로컬이어도 쿼리 접속 대상 키 자체를 거부
+    # 재리뷰 권고 2: 같은 localhost의 다른 터널 포트·다른 계정·접속 설정으로 향할 수 있는 키
+    f"{LOCAL_CI_URL}?port=6543",
+    f"{LOCAL_CI_URL}?user=admin",
+    f"{LOCAL_CI_URL}?passfile=/tmp/pgpass",
+    f"{LOCAL_CI_URL}?options=-csearch_path%3Dprod",
+    f"{LOCAL_CI_URL}?sslmode=disable&Port=6543",  # 대소문자 무관
 ]
 
 
@@ -247,3 +253,59 @@ def test_url_with_unrelated_query_options_is_accepted():
     assert _outcome({URL_ENV: url}) == ("url", url)
     reset_public_schema(url, {"CI": "true"}, engine_factory=factory)
     assert factory.calls == [url]
+
+
+# ---- libpq 서비스 환경 변수 PGSERVICE·PGSERVICEFILE (T-101 — 사용자 지시 원문 "PGSERVICE도 T-101에서 막아") ----
+# 서비스 파일 항목은 URL 밖에서 libpq 접속 인자(호스트·DB·계정·sslmode 등)를 채운다 — 값이 비어 있지 않으면 엔진 생성 전에
+# 중단한다. URL이 없고 REQUIRE도 꺼진 로컬 실행은 연결 자체를 하지 않으므로 기존대로 skip한다.
+# 차단 범위는 사용자 지시대로 PGSERVICE·PGSERVICEFILE 두 개뿐이다 — PGHOST 등 다른 PG* 변수는 막지 않는다.
+
+SERVICE_ENV_CASES = [
+    {"PGSERVICE": "prod"},
+    {"PGSERVICEFILE": "/tmp/pg_service.conf"},
+    {"PGSERVICE": "prod", "PGSERVICEFILE": "/tmp/pg_service.conf"},
+    {"PGSERVICE": " "},  # 공백만 있어도 비어 있지 않다 — libpq는 그 이름으로 서비스를 찾는다
+]
+
+
+@pytest.mark.parametrize("service_env", SERVICE_ENV_CASES)
+def test_url_with_libpq_service_env_fails(service_env):
+    kind, message = _outcome({URL_ENV: LOCAL_CI_URL, REQUIRE_ENV: "1", **service_env})
+
+    assert kind == "fail"
+    assert all(name in message for name in service_env), message
+
+
+@pytest.mark.parametrize("service_env", SERVICE_ENV_CASES)
+def test_reset_with_libpq_service_env_is_refused_without_connecting(service_env):
+    factory = RecordingFactory()
+
+    with pytest.raises(pytest.fail.Exception, match="PGSERVICE"):
+        reset_public_schema(LOCAL_CI_URL, {"CI": "true", **service_env}, engine_factory=factory)
+
+    assert factory.calls == []
+    assert factory.engine.statements == []
+
+
+def test_url_missing_locally_still_skips_with_service_env():
+    # 로컬 skip 경로는 연결하지 않으므로 서비스 변수가 있어도 결과를 바꾸지 않는다
+    assert _outcome({"PGSERVICE": "prod", "PGSERVICEFILE": "/tmp/pg_service.conf"}) == ("skip", f"{URL_ENV} 미설정")
+
+
+def test_empty_service_env_is_not_refused():
+    environ = {"CI": "true", "PGSERVICE": "", "PGSERVICEFILE": ""}
+    factory = RecordingFactory()
+
+    assert _outcome({URL_ENV: LOCAL_CI_URL, **environ}) == ("url", LOCAL_CI_URL)
+    reset_public_schema(LOCAL_CI_URL, environ, engine_factory=factory)
+    assert factory.calls == [LOCAL_CI_URL]
+
+
+def test_other_libpq_env_is_not_refused():
+    # 사용자 지시 범위 밖 — PGHOST 등은 막지 않는다 (URL에 명시한 값이 우선하는지는 보고서에 따로 기록)
+    environ = {"CI": "true", "PGHOST": "prod.example.com", "PGDATABASE": "neondb", "PGPORT": "6543"}
+    factory = RecordingFactory()
+
+    assert _outcome({URL_ENV: LOCAL_CI_URL, **environ}) == ("url", LOCAL_CI_URL)
+    reset_public_schema(LOCAL_CI_URL, environ, engine_factory=factory)
+    assert factory.calls == [LOCAL_CI_URL]

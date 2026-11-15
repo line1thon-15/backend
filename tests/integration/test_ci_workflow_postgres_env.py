@@ -129,3 +129,48 @@ def test_fake_ci_missing_postgres_job_is_reported():
     problems = ci_postgres_env_problems(text)
 
     assert len(problems) == 1 and "pytest-postgres" in problems[0]
+
+
+# ---- 가짜 ci 텍스트: 텍스트 파서가 값을 확정할 수 없는 형식 (T-101 재리뷰 권고 1) ---------------
+# 블록 스칼라(`>`·`|` 계열)는 값이 다음 줄에 있고, 앵커·별칭·태그는 값이 다른 곳에 있거나 형이 바뀐다.
+# 이 파서는 그 값을 읽지 못하므로 표시자 문자를 값으로 오인해 "비어 있지 않음"으로 통과시키지 말고 문제로 보고한다.
+
+UNRESOLVABLE_VALUE_FORMS = [">", "|", ">-", "|-", "|+", ">2", "&url postgresql+psycopg://x", "*url", "!!str value"]
+
+
+@pytest.mark.parametrize("form", UNRESOLVABLE_VALUE_FORMS)
+def test_fake_ci_url_in_unresolvable_form_is_reported(form):
+    text = _fake(
+        "      TEST_POSTGRES_URL: postgresql+psycopg://ci:pw@localhost:5432/line1thon_ci\n",
+        f"      TEST_POSTGRES_URL: {form}\n        postgresql+psycopg://ci:pw@localhost:5432/line1thon_ci\n",
+    )
+
+    problems = ci_postgres_env_problems(text)
+
+    assert len(problems) == 1 and URL_ENV in problems[0], problems
+
+
+def test_fake_ci_empty_block_scalar_url_is_reported():
+    # 재현(재리뷰 원문): "TEST_POSTGRES_URL: > 변형으로 ci_postgres_env_problems 실행 시 [] 반환" — 내용이 비어도 통과하던 미탐
+    text = _fake("TEST_POSTGRES_URL: postgresql+psycopg://ci:pw@localhost:5432/line1thon_ci", "TEST_POSTGRES_URL: >")
+
+    problems = ci_postgres_env_problems(text)
+
+    assert len(problems) == 1 and URL_ENV in problems[0], problems
+
+
+@pytest.mark.parametrize("form", ["|-", "*flag"])
+def test_fake_ci_require_flag_in_unresolvable_form_is_reported(form):
+    text = _fake('      REQUIRE_TEST_POSTGRES: "1"\n', f'      REQUIRE_TEST_POSTGRES: {form}\n        "1"\n')
+
+    problems = ci_postgres_env_problems(text)
+
+    assert len(problems) == 1 and REQUIRE_ENV in problems[0], problems
+
+
+@pytest.mark.parametrize("value", ["'>'", '"|"', "'*url'"])
+def test_fake_ci_quoted_indicator_characters_are_plain_values(value):
+    # 따옴표 안의 표시자 문자는 일반 문자열이다 — 형식 오류로 보고하지 않는다 (과잉 보고 방지)
+    text = _fake('AI_CLIENT: fake\n      TEST_POSTGRES_URL', f"AI_CLIENT: {value}\n      TEST_POSTGRES_URL")
+
+    assert ci_postgres_env_problems(text) == []

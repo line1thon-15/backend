@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # 운영 Neon 버전: 사용자 전달값 PostgreSQL 18.7(본인 표현 '~인 거 같아' — 미확정, T-101 ⑥). 메이저만 맞춘다
+        # 운영 Neon 버전: PostgreSQL 18.7 (사용자가 Neon SQL Editor `SHOW server_version;`으로 확인, T-101 ⑥). 메이저만 맞춘다
         image: postgres:18
         env:
           POSTGRES_USER: ci

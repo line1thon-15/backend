@@ -1,7 +1,8 @@
 """CI 워크플로 텍스트에서 job 수준 `env`를 읽는다 (T-101 reviewer 권고 2).
 
 yaml 라이브러리를 의존성에 두지 않으므로 이 저장소 ci.yml이 쓰는 블록 형식(`KEY: value` 한 줄씩)만 읽는다.
-흐름 매핑(`env: {A: b}`)처럼 읽지 못하는 형식은 조용히 빈 값으로 넘기지 않고 문제로 보고한다.
+흐름 매핑(`env: {A: b}`)·블록 스칼라(`>`·`|` 계열)·앵커(`&`)·별칭(`*`)·태그(`!`)처럼 값을 확정할 수 없는 형식은
+조용히 빈 값이나 표시자 문자로 넘기지 않고 문제로 보고한다 (T-101 재리뷰 권고 1).
 """
 
 import re
@@ -10,6 +11,8 @@ from tests.integration.helpers.postgres_guard import REQUIRE_ENV, TRUTHY, URL_EN
 
 POSTGRES_JOB = "pytest-postgres"
 _KEY_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
+# 따옴표 없는 값이 이 문자로 시작하면 블록 스칼라(> |)·앵커(&)·별칭(*)·태그(!) — 값이 다른 줄·다른 곳에 있다
+_UNRESOLVABLE_PREFIXES = (">", "|", "&", "*", "!")
 
 
 def _indent(line: str) -> int:
@@ -78,7 +81,14 @@ def job_env(ci_text: str, job: str) -> dict[str, str] | None:
         return {}
     if _scalar(env_entry[0]):
         raise UnsupportedFormat(f"jobs.{job}.env 형식 미지원(블록 매핑만 읽음): {env_entry[0]!r}")
-    return {key: _scalar(value) for key, value, _ in _child_keys(_block(job_block, env_entry[1]))}
+    env = {}
+    for key, value, _ in _child_keys(_block(job_block, env_entry[1])):
+        if value.strip().startswith(_UNRESOLVABLE_PREFIXES):
+            raise UnsupportedFormat(
+                f"jobs.{job}.env.{key} 형식 미지원(블록 스칼라·앵커·별칭·태그는 값을 확정할 수 없음): {value!r}"
+            )
+        env[key] = _scalar(value)
+    return env
 
 
 def ci_postgres_env_problems(ci_text: str) -> list[str]:
