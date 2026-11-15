@@ -114,6 +114,7 @@ def ci_postgres_env_problems(ci_text: str) -> list[str]:
     for name in LIBPQ_TARGET_ENV_VARS:
         if name in env:
             problems.append(
-                f"jobs.{POSTGRES_JOB}.env.{name}가 있으면 안 된다 — 가드가 PostgreSQL 테스트를 실패시킨다(URL 밖 접속 인자 차단)"
+                f"jobs.{POSTGRES_JOB}.env.{name}가 있으면 안 된다 — 값이 비어 있지 않으면 가드가 PostgreSQL 테스트를 실패시킨다"
+                "(URL 밖 접속 인자 차단). 빈 값도 둘 이유가 없어 보수적으로 보고한다"
             )
     return problems
