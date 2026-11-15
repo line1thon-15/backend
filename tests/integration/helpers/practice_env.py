@@ -188,6 +188,12 @@ class WeakEnv(Env):
         self._day += 1
         ended_at = ended_at or WEAK_T0 + timedelta(days=self._day)
         with self.session_factory.begin() as db:
+            # 순번은 그 아이 live 최댓값 + 1 — 고유 인덱스(child_id, origin, draw_index)와 겹치지 않게 (T-99 ①, ADR-0023)
+            live_max = db.scalar(
+                select(func.max(PracticeSession.draw_index)).where(
+                    PracticeSession.child_id == child_id, PracticeSession.origin == "live"
+                )
+            )
             row = PracticeSession(
                 child_id=child_id,
                 mode="area",
@@ -201,7 +207,7 @@ class WeakEnv(Env):
                 child_setup="설정",
                 ai_role_name="상대",
                 retry_of=None,
-                draw_index=self._day,
+                draw_index=(live_max or 0) + 1,
                 hint_level=None,
                 status=status,
                 normal_outcome=None,
