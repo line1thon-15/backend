@@ -7,7 +7,7 @@ yaml 라이브러리를 의존성에 두지 않으므로 이 저장소 ci.yml이
 
 import re
 
-from tests.integration.helpers.postgres_guard import REQUIRE_ENV, TRUTHY, URL_ENV
+from tests.integration.helpers.postgres_guard import LIBPQ_TARGET_ENV_VARS, REQUIRE_ENV, TRUTHY, URL_ENV
 
 POSTGRES_JOB = "pytest-postgres"
 _KEY_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
@@ -92,7 +92,10 @@ def job_env(ci_text: str, job: str) -> dict[str, str] | None:
 
 
 def ci_postgres_env_problems(ci_text: str) -> list[str]:
-    """PostgreSQL job이 가드를 켜는지: `REQUIRE_TEST_POSTGRES`가 TRUTHY, `TEST_POSTGRES_URL`이 비어 있지 않음."""
+    """PostgreSQL job이 가드를 켜는지: `REQUIRE_TEST_POSTGRES`가 TRUTHY, `TEST_POSTGRES_URL`이 비어 있지 않음,
+    가드가 차단하는 libpq 변수(`LIBPQ_TARGET_ENV_VARS`)가 job env에 없음 (T-101 리뷰 권고 3 — 런타임 실패 전에 정적으로).
+    libpq 변수는 값과 무관하게 키가 있으면 보고한다 — 이 job env에 둘 이유가 없다.
+    """
     try:
         env = job_env(ci_text, POSTGRES_JOB)
     except UnsupportedFormat as exc:
@@ -108,4 +111,9 @@ def ci_postgres_env_problems(ci_text: str) -> list[str]:
         )
     if not env.get(URL_ENV, "").strip():
         problems.append(f"jobs.{POSTGRES_JOB}.env.{URL_ENV}가 설정돼 있어야 한다")
+    for name in LIBPQ_TARGET_ENV_VARS:
+        if name in env:
+            problems.append(
+                f"jobs.{POSTGRES_JOB}.env.{name}가 있으면 안 된다 — 가드가 PostgreSQL 테스트를 실패시킨다(URL 밖 접속 인자 차단)"
+            )
     return problems

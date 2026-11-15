@@ -264,7 +264,7 @@ SERVICE_ENV_CASES = [
     {"PGSERVICE": "prod"},
     {"PGSERVICEFILE": "/tmp/pg_service.conf"},
     {"PGSERVICE": "prod", "PGSERVICEFILE": "/tmp/pg_service.conf"},
-    {"PGSERVICE": " "},  # 공백만 있어도 비어 있지 않다 — libpq는 그 이름으로 서비스를 찾는다
+    {"PGSERVICE": " "},  # 보수적으로 차단 — 공백만 있는 값도 설정으로 본다(빈 문자열만 미설정)
 ]
 
 
@@ -337,6 +337,49 @@ def test_url_missing_locally_still_skips_with_hostaddr_port_env():
 
 def test_empty_hostaddr_port_env_is_not_refused():
     environ = {"CI": "true", "PGHOSTADDR": "", "PGPORT": ""}
+    factory = RecordingFactory()
+
+    assert _outcome({URL_ENV: LOCAL_CI_URL, **environ}) == ("url", LOCAL_CI_URL)
+    reset_public_schema(LOCAL_CI_URL, environ, engine_factory=factory)
+    assert factory.calls == [LOCAL_CI_URL]
+
+
+# PGOPTIONS·PGPASSFILE (T-101 리뷰 권고 1 — 사용자 지시 원문 "리뷰 권고 3건도 T-101에서 반영해"): URL 쿼리 `options`·
+# `passfile`과 같은 효과(서버 설정·비밀번호 파일)를 환경 변수로 낸다 — 쿼리 키와 대칭으로 엔진 생성 전에 중단한다.
+OPTIONS_PASSFILE_ENV_CASES = [
+    {"PGOPTIONS": "-c search_path=prod"},
+    {"PGPASSFILE": "/tmp/pgpass"},
+    {"PGOPTIONS": "-c search_path=public", "PGPASSFILE": "/tmp/pgpass"},
+    {"PGPASSFILE": " "},  # 보수적으로 차단 — 공백만 있는 값도 설정으로 본다
+]
+
+
+@pytest.mark.parametrize("target_env", OPTIONS_PASSFILE_ENV_CASES)
+def test_url_with_libpq_options_or_passfile_env_fails(target_env):
+    kind, message = _outcome({URL_ENV: LOCAL_CI_URL, REQUIRE_ENV: "1", **target_env})
+
+    assert kind == "fail"
+    assert all(name in message for name in target_env), message
+
+
+@pytest.mark.parametrize("target_env", OPTIONS_PASSFILE_ENV_CASES)
+def test_reset_with_libpq_options_or_passfile_env_is_refused_without_connecting(target_env):
+    factory = RecordingFactory()
+
+    with pytest.raises(pytest.fail.Exception) as exc_info:
+        reset_public_schema(LOCAL_CI_URL, {"CI": "true", **target_env}, engine_factory=factory)
+
+    assert all(name in str(exc_info.value) for name in target_env)
+    assert factory.calls == []
+    assert factory.engine.statements == []
+
+
+def test_url_missing_locally_still_skips_with_options_passfile_env():
+    assert _outcome({"PGOPTIONS": "-c search_path=prod", "PGPASSFILE": "/tmp/pgpass"}) == ("skip", f"{URL_ENV} 미설정")
+
+
+def test_empty_options_passfile_env_is_not_refused():
+    environ = {"CI": "true", "PGOPTIONS": "", "PGPASSFILE": ""}
     factory = RecordingFactory()
 
     assert _outcome({URL_ENV: LOCAL_CI_URL, **environ}) == ("url", LOCAL_CI_URL)

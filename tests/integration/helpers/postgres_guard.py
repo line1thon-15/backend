@@ -9,6 +9,7 @@
 - 운영·공유 DB URL을 `TEST_POSTGRES_URL`에 넣지 않는다.
 - libpq 서비스 환경 변수 `PGSERVICE`·`PGSERVICEFILE`이 비어 있지 않게 설정된 실행은 URL 확정·스키마 삭제 전에 중단한다.
 - libpq 환경 변수 `PGHOSTADDR`·`PGPORT`도 같다 — URL에 없는 hostaddr·포트를 채워 호스트 검사를 우회한다.
+- libpq 환경 변수 `PGOPTIONS`·`PGPASSFILE`도 같다 — URL 쿼리 `options`·`passfile`과 같은 효과라 쿼리 키와 대칭으로 막는다.
 """
 
 from collections.abc import Callable, Mapping
@@ -33,7 +34,9 @@ QUERY_TARGET_KEYS = {"host", "hostaddr", "service", "servicefile", "dbname", "po
 # PGSERVICE·PGSERVICEFILE: 서비스 파일 항목이 접속 인자를 채운다 — 사용자 지시 원문 "PGSERVICE도 T-101에서 막아".
 # PGHOSTADDR·PGPORT: URL이 hostaddr를 넘기지 않으므로 PGHOSTADDR가 실제 TCP 주소를 정하고, 포트 없는 URL에는 PGPORT가
 # 적용된다 — 사용자 결정 원문 "둘 다 막기". PGHOST·PGDATABASE·PGUSER는 URL 명시값이 우선하므로 막지 않는다.
-LIBPQ_TARGET_ENV_VARS = ("PGSERVICE", "PGSERVICEFILE", "PGHOSTADDR", "PGPORT")
+# PGOPTIONS·PGPASSFILE: 쿼리 키 options·passfile과 같은 효과(서버 설정·비밀번호 파일) — T-101 리뷰 권고 1, 사용자 지시 원문
+# "리뷰 권고 3건도 T-101에서 반영해". 쿼리 키 차단 범위와 대칭을 맞춘다.
+LIBPQ_TARGET_ENV_VARS = ("PGSERVICE", "PGSERVICEFILE", "PGHOSTADDR", "PGPORT", "PGOPTIONS", "PGPASSFILE")
 
 
 def _flag(environ: Mapping[str, str], name: str) -> bool:
@@ -57,9 +60,10 @@ def checked_postgres_url(raw: str) -> str:
 
 
 def check_no_libpq_target_env(environ: Mapping[str, str]) -> None:
-    """`PGSERVICE`·`PGSERVICEFILE`·`PGHOSTADDR`·`PGPORT`가 비어 있지 않게 설정돼 있으면 pytest 실패(엔진 생성 전).
+    """`LIBPQ_TARGET_ENV_VARS`(PGSERVICE·PGSERVICEFILE·PGHOSTADDR·PGPORT·PGOPTIONS·PGPASSFILE) 중 하나라도 비어 있지 않게
+    설정돼 있으면 pytest 실패(엔진 생성 전).
 
-    빈 문자열("")만 미설정으로 본다 — 공백만 있어도 libpq는 그 값을 쓰려 하므로 막는다.
+    빈 문자열("")만 미설정으로 본다 — 보수적으로 차단: 공백만 있는 값도 설정으로 본다.
     """
     present = [name for name in LIBPQ_TARGET_ENV_VARS if environ.get(name, "") != ""]
     if present:
@@ -87,7 +91,7 @@ def resolve_postgres_url(environ: Mapping[str, str]) -> str:
 
 def check_schema_reset_allowed(raw: str, environ: Mapping[str, str]) -> None:
     """`DROP SCHEMA public CASCADE` 전 확인: 로컬 호스트(쿼리 접속 대상 키 없음) + 일회용 DB 이름 + CI 환경
-    + `PGSERVICE`·`PGSERVICEFILE`·`PGHOSTADDR`·`PGPORT` 미설정. 어긋나면 pytest 실패.
+    + `LIBPQ_TARGET_ENV_VARS` 미설정. 어긋나면 pytest 실패.
 
     호스트 검사만으로는 SSH 터널 등으로 localhost에 붙은 운영 DB를 막지 못한다(T-99 리뷰 권고 B) — DB 이름·CI 확인을
     더했지만 이것도 실수 방지용이지 완전 차단이 아니다(팀 리뷰 P3): 터널 너머 운영 DB 이름이 `_ci`·`_test`로 끝나고

@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from tests.integration.helpers.ci_workflow import ci_postgres_env_problems, job_env
-from tests.integration.helpers.postgres_guard import REQUIRE_ENV, URL_ENV, check_schema_reset_allowed
+from tests.integration.helpers.postgres_guard import (
+    LIBPQ_TARGET_ENV_VARS,
+    REQUIRE_ENV,
+    URL_ENV,
+    check_schema_reset_allowed,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -172,5 +177,44 @@ def test_fake_ci_require_flag_in_unresolvable_form_is_reported(form):
 def test_fake_ci_quoted_indicator_characters_are_plain_values(value):
     # 따옴표 안의 표시자 문자는 일반 문자열이다 — 형식 오류로 보고하지 않는다 (과잉 보고 방지)
     text = _fake('AI_CLIENT: fake\n      TEST_POSTGRES_URL', f"AI_CLIENT: {value}\n      TEST_POSTGRES_URL")
+
+    assert ci_postgres_env_problems(text) == []
+
+
+# ---- 가짜 ci 텍스트: pytest-postgres job env의 libpq 접속 대상 변수 (T-101 리뷰 권고 3) ---------------------
+# 가드는 이 변수들이 설정된 실행을 런타임에 실패시킨다 — CI 설정 단계에서 정적으로 먼저 잡는다.
+# 목록은 가드 상수(LIBPQ_TARGET_ENV_VARS)와 같아야 한다 — 아래 상수 대조 테스트가 드리프트를 잡는다.
+CI_BLOCKED_LIBPQ_ENV = ["PGSERVICE", "PGSERVICEFILE", "PGHOSTADDR", "PGPORT", "PGOPTIONS", "PGPASSFILE"]
+POSTGRES_JOB_ENV_LINE = "      AI_CLIENT: fake\n      TEST_POSTGRES_URL"
+
+
+def test_ci_blocked_list_matches_guard_constant():
+    assert sorted(CI_BLOCKED_LIBPQ_ENV) == sorted(LIBPQ_TARGET_ENV_VARS)
+
+
+@pytest.mark.parametrize("name", CI_BLOCKED_LIBPQ_ENV)
+@pytest.mark.parametrize("value", ["x", '""'])  # 빈 값도 키가 있으면 보고 — job env에 둘 이유가 없다
+def test_fake_ci_libpq_target_env_in_postgres_job_is_reported(name, value):
+    text = _fake(POSTGRES_JOB_ENV_LINE, f"      AI_CLIENT: fake\n      {name}: {value}\n      TEST_POSTGRES_URL")
+
+    problems = ci_postgres_env_problems(text)
+
+    assert len(problems) == 1 and name in problems[0], problems
+
+
+def test_fake_ci_libpq_target_env_outside_postgres_job_env_is_not_reported():
+    # 다른 job(SQLite pytest)의 env, 서비스 컨테이너 env는 pytest-postgres 프로세스에 전달되지 않는다
+    text = _fake(
+        "      AI_CLIENT: fake\n    steps:\n      - run: python -m pytest\n",
+        '      AI_CLIENT: fake\n      PGPORT: "6543"\n    steps:\n      - run: python -m pytest\n',
+    ).replace("          POSTGRES_DB: line1thon_ci\n", '          POSTGRES_DB: line1thon_ci\n          PGPORT: "5432"\n')
+    assert 'PGPORT: "6543"' in text and 'PGPORT: "5432"' in text  # 치환이 실제로 일어났는지
+
+    assert ci_postgres_env_problems(text) == []
+
+
+def test_fake_ci_unblocked_libpq_env_in_postgres_job_is_not_reported():
+    # 가드가 막지 않는 변수(URL 명시값이 우선)는 보고하지 않는다
+    text = _fake(POSTGRES_JOB_ENV_LINE, "      AI_CLIENT: fake\n      PGHOST: db\n      PGUSER: ci\n      TEST_POSTGRES_URL")
 
     assert ci_postgres_env_problems(text) == []
