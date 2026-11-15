@@ -213,7 +213,6 @@ class PracticeService:
             preferred_platforms=preferred_platforms,
             ended_outcomes=ended_outcomes,
             retry_of=None,
-            draw_index=self._repository.count_new_draws(child_id) + 1,
         )
 
     def start_retry_session(self, *, child_id: UUID, retry_of: UUID) -> SessionOutput:
@@ -260,7 +259,6 @@ class PracticeService:
             candidate=candidate,
             preferred_platforms=preferred_platforms,
             retry_of=original.session_id,
-            draw_index=None,  # 다시 도전은 새 출제 순번을 쓰지 않는다
         )
 
     def _request_variant(
@@ -368,7 +366,6 @@ class PracticeService:
         candidate: ScenarioCandidate,
         preferred_platforms: frozenset[str],
         retry_of: UUID | None,
-        draw_index: int | None,
         ended_outcomes: Sequence[CueOutcome] | None = None,
     ) -> SessionOutput:
         """variant → start → 검증 → 세션·턴 0 저장. AI 실패면 아무것도 저장하지 않는다."""
@@ -409,7 +406,9 @@ class PracticeService:
                 scenario_title=start.title,
                 child_setup=start.child_setup,
                 ai_role_name=start.ai_role_name,
-                draw_index=draw_index,
+                # 새 출제 순번은 AI 호출 전이 아니라 저장소가 저장 트랜잭션 안에서 정한다 — 다시 도전은 순번 없음
+                # (T-99 ①, DECISIONS #140, ADR-0023 규칙 3)
+                is_new_draw=mode != "retry",
                 started_at=self._clock(),
                 retry_of=retry_of,
                 # 새 출제는 앞에서 읽은 기록을 재사용, 다시 도전은 여기서 1회 읽는다 (T-96)

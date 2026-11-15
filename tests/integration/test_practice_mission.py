@@ -23,8 +23,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import PracticeSession, PracticeTurn
 from app.main import create_app
-from tests.integration.test_practice_sessions import CONTENT, SCENARIO_CLUES, Env, RecordingPracticeAI
-from tests.integration.test_practice_weak_priority import WeakEnv
+from tests.integration.helpers.practice_env import CONTENT, SCENARIO_CLUES, RecordingPracticeAI, WeakEnv
 
 ALL_AREAS = ("scam", "identity_lending", "friend_pressure")
 

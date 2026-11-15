@@ -18,3 +18,36 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Run pytest (Fake AI, SQLite)
         run: python -m pytest
+
+  # T-99 ⑧ — PostgreSQL 통합 테스트 (DECISIONS #142, Architecture 테스트 전략 "PostgreSQL 통합 테스트" 행).
+  # 서비스 컨테이너 안의 일회용 DB만 쓴다. 계정·비밀번호는 이 컨테이너 전용 값이라 시크릿이 아니다(운영 접속 정보 금지).
+  # 수집 0건이면 pytest가 종료 코드 5로 끝나 job이 실패한다(빈 통과 방지).
+  pytest-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # 운영 버전 미확인 — 잠정. 운영 DB 메이저 버전 확인 후 이 한 줄만 바꾼다
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: line1thon_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d line1thon_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AI_CLIENT: fake
+      TEST_POSTGRES_URL: postgresql+psycopg://ci:ci-only-password@localhost:5432/line1thon_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run pytest (PostgreSQL only)
+        run: python -m pytest -m postgres

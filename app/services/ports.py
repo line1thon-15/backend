@@ -212,7 +212,9 @@ class NewPracticeSession:
     scenario_title: str
     child_setup: str
     ai_role_name: str
-    draw_index: int | None
+    # 새 출제(area·mission)면 True — 저장소가 저장 트랜잭션 안에서 새 출제 순번(`draw_index`)을 정해 넣는다.
+    # 다시 도전은 False(`draw_index` NULL). T-99 ①, DECISIONS #140, ADR-0023 규칙 2·3
+    is_new_draw: bool
     started_at: datetime
     retry_of: UUID | None = None  # 다시 도전이면 직전 세션 (T-16, F-13 ③)
     # 목표 단서별 힌트 단계의 최댓값 (T-36, F-18 ② — 2026-11-14 사용자 결정 "가장 큰 값"). 목표 단서가 없으면 None
@@ -277,13 +279,15 @@ class PracticeRepository(Protocol):
         scenario_ids: list[str],
     ) -> dict[str, tuple[str, str]]: ...
 
-    def count_new_draws(self, child_id: UUID) -> int: ...
-
     def create_session(
         self,
         session: NewPracticeSession,
         first_turn: NewPracticeTurn,
-    ) -> UUID: ...
+    ) -> UUID:
+        """세션·턴 0을 한 트랜잭션에 저장한다. 새 출제면 같은 트랜잭션 안에서 순번 = 그 아이 `live` 비NULL `draw_index`
+        최댓값 + 1(없으면 1). 순번 고유 인덱스 위반이면 순번만 다시 계산해 1회 재시도하고, 또 위반이면 예외를 그대로
+        올린다(→ 500 `INTERNAL`) — ADR-0023 규칙 2~4."""
+        ...
 
     def get_session(
         self,

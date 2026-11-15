@@ -4,5 +4,6 @@ pythonpath = ["."]
 addopts = "-m \"not live_ai\" --import-mode=importlib"
 markers = [
     "live_ai: 실행 중인 AI 서비스(AI_SERVICE_URL)를 호출하는 테스트 — 기본 실행에서 제외",
+    "postgres: TEST_POSTGRES_URL(localhost PostgreSQL)이 있어야 실행 — 없으면 skip. CI job pytest-postgres가 -m postgres로 실행",
 ]
 tmp_path_retention_policy = "none"
