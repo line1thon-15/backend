@@ -7,8 +7,11 @@
 
 실행 조건:
 - 마커 `postgres` + 환경 변수 `TEST_POSTGRES_URL`(형식 `postgresql+psycopg://…`). 값이 없으면 skip — 로컬 기본 SQLite
-  실행에서는 건너뛴다. 값이 있는데 연결·마이그레이션이 실패하면 skip이 아니라 오류.
+  실행에서는 건너뛴다. 단 `REQUIRE_TEST_POSTGRES`가 켜진 실행(CI job pytest-postgres)은 skip 대신 실패(T-101 ①).
+  값이 있는데 연결·마이그레이션이 실패하면 skip이 아니라 오류.
 - 호스트가 localhost·127.0.0.1이 아니면 실패(운영·외부 DB 오사용 방지). 앱의 DATABASE_URL을 대신 읽지 않는다.
+- 스키마 삭제 전 DB 이름(`_ci`·`_test`로 끝남)·CI 환경(`CI=true`)도 확인 — 어긋나면 연결·삭제 없이 실패(T-101 ②).
+  판정은 `helpers/postgres_guard.py`, 검증은 `test_postgres_guard.py`(PostgreSQL 없이 실행).
 - 각 테스트는 `public` 스키마를 비운 뒤 `alembic upgrade head`(또는 지정 리비전)부터 시작한다 — CI 서비스 컨테이너
   전용 일회용 DB를 전제로 한다.
 """
@@ -23,7 +26,6 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, func, inspect, select, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
 from alembic import command
@@ -47,41 +49,32 @@ from tests.integration.helpers.draw_index_cases import (
     insert_duplicate_rows,
 )
 from tests.integration.helpers.practice_env import Env, RecordingPracticeAI
+from tests.integration.helpers.postgres_guard import (
+    checked_postgres_url,
+    reset_public_schema,
+    resolve_postgres_url,
+)
 
 pytestmark = pytest.mark.postgres
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-URL_ENV = "TEST_POSTGRES_URL"
-ALLOWED_HOSTS = {"localhost", "127.0.0.1"}
 INDEX_NAME = "uq_practice_sessions_child_origin_draw"
 BEFORE_INDEX_REVISION = "20261112_05"
 
 
-def checked_postgres_url(raw: str) -> str:
-    """로컬 PostgreSQL URL만 통과. 아니면 pytest 실패(운영·외부 DB 보호)."""
-    url = make_url(raw)
-    if not url.drivername.startswith("postgresql"):
-        pytest.fail(f"{URL_ENV}는 postgresql URL이어야 한다", pytrace=False)
-    if url.host not in ALLOWED_HOSTS:
-        pytest.fail(f"{URL_ENV} 호스트는 localhost·127.0.0.1만 허용 (운영·외부 DB 보호)", pytrace=False)
-    return raw
-
-
 @pytest.fixture
 def pg_url() -> str:
-    raw = os.environ.get(URL_ENV, "").strip()
-    if not raw:
-        pytest.skip(f"{URL_ENV} 미설정")
-    return checked_postgres_url(raw)
+    # URL 없음: 로컬은 skip, CI 전용 변수 REQUIRE_TEST_POSTGRES가 켜져 있으면 실패 (T-101 ①, helpers/postgres_guard.py)
+    return resolve_postgres_url(os.environ)
 
 
 @pytest.fixture
 def pg(pg_url, monkeypatch) -> Iterator[tuple[Config, Engine, str]]:
-    """빈 public 스키마 + alembic 설정. 연결 실패는 그대로 오류로 올라간다(조용한 skip 금지)."""
-    engine = create_engine(pg_url)
-    with engine.begin() as conn:
-        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        conn.execute(text("CREATE SCHEMA public"))
+    """빈 public 스키마 + alembic 설정. 연결 실패는 그대로 오류로 올라간다(조용한 skip 금지).
+
+    스키마 삭제 전 호스트·DB 이름·CI 환경을 확인한다(T-101 ②) — 하나라도 어긋나면 연결·삭제 없이 실패.
+    """
+    engine = reset_public_schema(pg_url, os.environ)
     # alembic env.py는 Settings().database_url을 읽는다 — 이 테스트 동안만 PostgreSQL을 가리킨다
     monkeypatch.setenv("DATABASE_URL", pg_url)
     config = Config(str(REPO_ROOT / "alembic.ini"))

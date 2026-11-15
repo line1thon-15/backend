@@ -41,11 +41,13 @@ def _index(engine):
     return {index["name"]: index for index in inspect(engine).get_indexes("practice_sessions")}.get(INDEX_NAME)
 
 
-def test_head_is_draw_index_revision_after_guardian_notices(alembic_env):
+def test_draw_index_revision_is_in_history_after_guardian_notices(alembic_env):
+    # T-101 ④: head 고정 단언은 이후 리비전이 생기면 깨진다 — 이력에 있고 guardian_notices 다음인지만 본다
+    # (선례: test_guardian_notices_migration.py의 T-25 리비전 처리)
     config, _ = alembic_env
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_current_head() == REVISION
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
     assert script.get_revision(REVISION).down_revision == PREVIOUS_REVISION
 
 
