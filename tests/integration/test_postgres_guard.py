@@ -258,7 +258,7 @@ def test_url_with_unrelated_query_options_is_accepted():
 # ---- libpq 서비스 환경 변수 PGSERVICE·PGSERVICEFILE (T-101 — 사용자 지시 원문 "PGSERVICE도 T-101에서 막아") ----
 # 서비스 파일 항목은 URL 밖에서 libpq 접속 인자(호스트·DB·계정·sslmode 등)를 채운다 — 값이 비어 있지 않으면 엔진 생성 전에
 # 중단한다. URL이 없고 REQUIRE도 꺼진 로컬 실행은 연결 자체를 하지 않으므로 기존대로 skip한다.
-# 차단 범위는 사용자 지시대로 PGSERVICE·PGSERVICEFILE 두 개뿐이다 — PGHOST 등 다른 PG* 변수는 막지 않는다.
+# 차단 범위는 `LIBPQ_TARGET_ENV_VARS`(PGSERVICE·PGSERVICEFILE·PGHOSTADDR·PGPORT·PGOPTIONS·PGPASSFILE, 사용자 지시) — PGHOST·PGDATABASE·PGUSER 등 다른 PG* 변수는 막지 않는다.
 
 SERVICE_ENV_CASES = [
     {"PGSERVICE": "prod"},
