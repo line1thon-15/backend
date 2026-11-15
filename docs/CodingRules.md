@@ -43,6 +43,7 @@
 | ~~시연 예시 데이터 적재 — 고정 시연 계정 (Git Bash, 저장소 루트, 마이그레이션된 DB. 재실행 안전. 계정 값은 `app/demo/data/demo_account.json`)~~ | ~~`.venv/Scripts/python.exe -m app.demo.seed fixed --database-url "$URL"`~~ | ~~2026-11-13 (T-67, 종료 코드 0, 두 번 실행 후 세션 8·알림 2)~~ 교체 사유: 2026-11-13 사용자 답 "환경 변수로 받기 (추천)" — 비밀번호·PIN을 저장소 파일에서 빼고 환경 변수로 받게 바뀌어, 환경 변수 없이 이 명령만 실행하면 종료 코드 2 |
 | 시연 예시 데이터 적재 — 고정 시연 계정 (Git Bash, 저장소 루트, 마이그레이션된 DB. 재실행 안전. 프로필은 `app/demo/data/demo_account.json`, 보호자 비밀번호(8~128자)·아이 PIN(숫자 4자리)은 프로세스 환경 변수 — `.env.example` 플레이스홀더 참고. Windows에서 `$URL`은 `sqlite:///C:/...` 형식(드라이브 문자 포함 슬래시 경로)) | `DEMO_GUARDIAN_PASSWORD=<비밀번호> DEMO_CHILD_PIN=<PIN> .venv/Scripts/python.exe -m app.demo.seed fixed --database-url "$URL"` | 2026-11-13 (T-67, 종료 코드 0. 환경 변수 없이 실행하면 종료 코드 2) |
 | 시연 예시 데이터 적재 — 지정 아이에 덧붙임 (Git Bash, 저장소 루트) | `.venv/Scripts/python.exe -m app.demo.seed attach --child-id <child UUID> --database-url "$URL"` | 2026-11-13 (T-67, 종료 코드 0) |
+| backend PostgreSQL 통합 테스트 (CI 전용 — `.github/workflows/ci.yml` job `pytest-postgres`가 실행. `TEST_POSTGRES_URL`(localhost, DB 이름 `_ci`·`_test`로 끝남)·`CI=true` 필요, `REQUIRE_TEST_POSTGRES=1`이면 URL 누락 시 skip 대신 실패. 로컬에서 URL 없이 실행하면 전부 skip) | `python -m pytest -m postgres` | 2026-11-15 (T-101 — 로컬은 PostgreSQL 없음: URL 없음+`REQUIRE_TEST_POSTGRES=1`이면 종료 코드 1·24 errors, 변수 없으면 종료 코드 0·24 skipped 확인. PostgreSQL 실제 통과는 PR CI 잡 확인 전 미검증) |
 
 ### 킷 자체 회귀 검사 (프로젝트 명령 아님)
 

@@ -915,15 +915,17 @@ def test_report_mixed_safety_and_trusted_contact_notices_order(env, family):
 
 
 class TimedSummaryAI:
-    """`delay`초 뒤 응답한다. 호출 시작 시각(단조 시계)을 기록한다."""
+    """`delay`초 뒤 응답한다. 호출 시작·응답 반환 시각(단조 시계)을 기록한다."""
 
     def __init__(self, delay: float) -> None:
         self.delay = delay
         self.call_started: list[float] = []
+        self.call_returned: list[float] = []
 
     def summary(self, request: SummaryRequest) -> SummaryResponse:
         self.call_started.append(time.monotonic())
         time.sleep(self.delay)
+        self.call_returned.append(time.monotonic())
         return SummaryResponse(summary=f"{request.area} 연습을 꾸준히 했어요.")
 
 
@@ -951,13 +953,15 @@ def seed_one_area(env: Env):
 
 def test_summary_arrives_before_deadline_but_validation_ends_after_is_ok(summary_app_factory, monkeypatch):
     # T-99 ⑤ (DECISIONS #141 (가)): 상한은 AI 응답 도착 기준 — 상한 직전 도착 + 검증이 상한을 넘겨 끝나도 ok
-    deadline = 0.5
+    # T-101 ③: 도착 여유를 0.2초 → 약 0.95초로 넓힘(상한 1.0초, 지연 0.05초). 검증은 1.3초 늦춰 상한을 확실히 넘긴다
+    deadline = 1.0
     monkeypatch.setattr(guardian_report_service_module, "SUMMARY_DEADLINE_SECONDS", deadline)
-    finished = _slow_accept_summary(monkeypatch, seconds=0.6)
-    ai = TimedSummaryAI(delay=0.3)
+    finished = _slow_accept_summary(monkeypatch, seconds=1.3)
+    ai = TimedSummaryAI(delay=0.05)
     env = summary_app_factory(ai)
     guardian, child = seed_one_area(env)
 
+    requested = time.monotonic()  # 서비스의 상한 측정 시작보다 앞선 시각
     response = env.report(child["child_id"], guardian)
 
     assert response.status_code == 200, response.text
@@ -966,9 +970,10 @@ def test_summary_arrives_before_deadline_but_validation_ends_after_is_ok(summary
         "unit": "area",
         "items": [{"area": "scam", "sentences": [f"{area_name('scam')} 연습을 꾸준히 했어요."]}],
     }
-    # 경계 조건이 실제로 성립했는지: 응답은 상한 안(0.3초 지연), 검증 종료는 호출 시작(≥ 상한 측정 시작)부터 상한 초과
-    assert len(ai.call_started) == 1 and len(finished) == 1
-    assert ai.delay < deadline
+    # 경계 조건이 실제로 성립했는지 실측 시각으로 확인(T-101 ③ — 설정값끼리 비교하던 동어반복 단언 제거):
+    # 응답 반환은 요청 시작(≤ 상한 측정 시작)부터 상한 안, 검증 종료는 호출 시작(≥ 상한 측정 시작)부터 상한 초과
+    assert len(ai.call_started) == 1 and len(ai.call_returned) == 1 and len(finished) == 1
+    assert ai.call_returned[0] - requested < deadline
     assert finished[0] - ai.call_started[0] > deadline
 
 

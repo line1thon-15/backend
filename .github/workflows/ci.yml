@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # 운영 버전 미확인 — 잠정. 운영 DB 메이저 버전 확인 후 이 한 줄만 바꾼다
-        image: postgres:17
+        # 운영 Neon 버전: PostgreSQL 18.7 (사용자가 Neon SQL Editor `SHOW server_version;`으로 확인, T-101 ⑥). 메이저만 맞춘다
+        image: postgres:18
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci-only-password
@@ -42,6 +42,8 @@ jobs:
     env:
       AI_CLIENT: fake
       TEST_POSTGRES_URL: postgresql+psycopg://ci:ci-only-password@localhost:5432/line1thon_ci
+      # T-101 ①: 이 job에서는 TEST_POSTGRES_URL 누락·빈 값이면 skip이 아니라 실패 (tests/integration/helpers/postgres_guard.py)
+      REQUIRE_TEST_POSTGRES: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
