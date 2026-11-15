@@ -19,7 +19,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import ChildSettings, GuardianNotice
 from app.main import create_app
-from tests.integration.test_guardian_report import NOTICE_KEYS, forbidden_keys_found
+from tests.integration.helpers.guardian_report_keys import NOTICE_KEYS, forbidden_keys_found
 
 NOW = datetime(2026, 11, 15, 3, 0, tzinfo=timezone.utc)
 CONTACT_NAME = "엄마T40"

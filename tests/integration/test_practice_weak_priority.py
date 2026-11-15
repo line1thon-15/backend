@@ -10,19 +10,15 @@ DECISIONS #113). not_shown은 저장되지 않으므로 영향이 없다(#109, A
 
 import random
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
-from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.db.base import Base
-from app.db.models import CueResult, PracticeSession
 from app.main import create_app
-from tests.integration.test_practice_sessions import SCENARIO_CLUES, Env, RecordingPracticeAI
+from tests.integration.helpers.practice_env import SCENARIO_CLUES, RecordingPracticeAI, WeakEnv
 
-T0 = datetime(2026, 11, 1, 3, 0, 0, tzinfo=timezone.utc)
 SCAM = sorted(sid for sid in SCENARIO_CLUES if sid.startswith("scam_"))
 
 
@@ -30,59 +26,6 @@ def unique_cue(scenario_id: str) -> str:
     """그 시나리오에만 있는 단서 하나 — 다른 scam 시나리오에는 없다."""
     others = {c for sid in SCAM if sid != scenario_id for c in SCENARIO_CLUES[sid]}
     return next(c for c in SCENARIO_CLUES[scenario_id] if c not in others)
-
-
-class WeakEnv(Env):
-    def __init__(self, client: TestClient, ai: RecordingPracticeAI) -> None:
-        super().__init__(client, ai)
-        self._day = 0
-
-    def past_session(
-        self,
-        child_id: UUID,
-        cues: dict[str, str],
-        *,
-        status: str = "ended",
-        ended_at: datetime | None = None,
-    ) -> None:
-        """과거 세션 1개 + 단서 판정 행. 시나리오 ID는 콘텐츠에 없는 값(F-12 직전 변형 조회에 끼지 않게).
-        `ended_at`을 주지 않으면 T0부터 하루씩 늘린다."""
-        self._day += 1
-        ended_at = ended_at or T0 + timedelta(days=self._day)
-        with self.session_factory.begin() as db:
-            row = PracticeSession(
-                child_id=child_id,
-                mode="area",
-                area="scam",
-                subtype=None,
-                scenario_id=f"past_{self._day}",
-                is_normal=False,
-                target_cue_ids=sorted(cues),
-                variant={"platform": "sms", "tone": "friendly"},
-                scenario_title="제목",
-                child_setup="설정",
-                ai_role_name="상대",
-                retry_of=None,
-                draw_index=self._day,
-                hint_level=None,
-                status=status,
-                normal_outcome=None,
-                origin="live",
-                started_at=ended_at,
-                ended_at=None if status == "in_progress" else ended_at,
-            )
-            db.add(row)
-            db.flush()
-            for cue_id, outcome in cues.items():
-                db.add(
-                    CueResult(
-                        session_id=row.id, child_id=child_id, cue_id=cue_id, outcome=outcome, recorded_at=ended_at
-                    )
-                )
-
-    def drawn_scenario(self) -> str:
-        view = self.started()
-        return self.session_row(view["session_id"]).scenario_id
 
 
 @pytest.fixture

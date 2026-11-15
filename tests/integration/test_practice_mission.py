@@ -23,8 +23,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import PracticeSession, PracticeTurn
 from app.main import create_app
-from tests.integration.test_practice_sessions import SCAM_SCENARIO_IDS, Env, RecordingPracticeAI
-from tests.integration.test_practice_weak_priority import WeakEnv
+from tests.integration.helpers.practice_env import SCAM_SCENARIO_IDS, RecordingPracticeAI, WeakEnv
 
 EXTRA_ID = "fp_test_mission_01"
 EXTRA_CLUES = ("guilt_pressure", "friendship_threat")
