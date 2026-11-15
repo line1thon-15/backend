@@ -85,8 +85,16 @@ def env(tmp_path) -> Iterator[ResultEnv]:
 
 
 def cue_card(cue_id: str) -> dict:
+    """A18 ResultCueCard — 기존 CueCard 필드 + 사본 tip 그대로 (T-102, DECISIONS #143)."""
     clue = CONTENT.clues[cue_id]
-    return {"cue_id": cue_id, "label": clue.name, "sentence": clue.description}
+    return {"cue_id": cue_id, "label": clue.name, "sentence": clue.description, "tip": clue.tip}
+
+
+def with_clue_tip(cue_id: str, tip: str):
+    """그 단서의 tip만 바꾼 콘텐츠 — 백엔드가 값을 고치지 않는지 확인용."""
+    clues = dict(CONTENT.clues)
+    clues[cue_id] = clues[cue_id].model_copy(update={"tip": tip})
+    return replace(CONTENT, clues=clues)
 
 
 def narrowed_content(scenario_id: str):
@@ -114,7 +122,7 @@ def test_result_after_correct_first_answer(env):
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body) == {"session_id", "found", "missed", "normal_outcome", "cards", "can_retry"}
+    assert set(body) == {"session_id", "found", "missed", "normal_outcome", "cards", "can_retry", "closing_line"}
     assert body["session_id"] == session_id
     assert body["found"] == [cue_card(clues[0])]
     assert body["missed"] == []
@@ -124,9 +132,10 @@ def test_result_after_correct_first_answer(env):
     assert env.ai.names() == ["feedback"]
     # 카드: AI 카드 순서대로 + 마지막 closing_line(K3)
     assert body["cards"] == [
-        {"level": LEVELS["K1"], "sentence": f"[fake] {clues[0]} 단서를 잘 찾았어요."},
-        {"level": LEVELS["K3"], "sentence": "[fake] 끝까지 연습해서 멋져요!"},
+        {"level": LEVELS["K1"], "sentence": f"[fake] {clues[0]} 단서를 잘 찾았어요.", "result": "found"},
+        {"level": LEVELS["K3"], "sentence": "[fake] 끝까지 연습해서 멋져요!", "result": None},
     ]
+    assert body["closing_line"] == "[fake] 끝까지 연습해서 멋져요!"
     assert len(feedback) == 1
     # 읽기 요청 — 아무것도 저장하지 않는다
     assert env.count(CueResult) == cue_before
@@ -142,6 +151,7 @@ def test_result_with_missed_and_found(env):
     assert body["found"] == [cue_card(clues[1])]
     assert body["missed"] == [cue_card(clues[0])]
     assert [card["level"] for card in body["cards"]] == [LEVELS["K2"], LEVELS["K1"], LEVELS["K3"]]
+    assert [card["result"] for card in body["cards"]] == ["missed", "found", None]
 
 
 def test_result_after_four_misses_lists_missed_in_scenario_order(env):
@@ -154,6 +164,10 @@ def test_result_after_four_misses_lists_missed_in_scenario_order(env):
     assert body["found"] == []
     assert body["missed"] == [cue_card(clue_id) for clue_id in clues]
     assert [card["level"] for card in body["cards"]] == [LEVELS["K2"]] * len(clues) + [LEVELS["K3"]]
+    # T-102 ④ 경계 — 찾은 단서 0개: 놓친 칩마다 tip, 카드 result는 missed만 + 마무리 null
+    assert all(card["tip"] == CONTENT.clues[card["cue_id"]].tip for card in body["missed"])
+    assert [card["result"] for card in body["cards"]] == ["missed"] * len(clues) + [None]
+    assert body["closing_line"] == body["cards"][-1]["sentence"]
 
 
 def test_result_with_no_revealed_clue_has_only_closing_card(env):
@@ -168,7 +182,8 @@ def test_result_with_no_revealed_clue_has_only_closing_card(env):
     body = env.result(session_id).json()
 
     assert body["found"] == [] and body["missed"] == []
-    assert body["cards"] == [{"level": LEVELS["K3"], "sentence": "[fake] 끝까지 연습해서 멋져요!"}]
+    assert body["cards"] == [{"level": LEVELS["K3"], "sentence": "[fake] 끝까지 연습해서 멋져요!", "result": None}]
+    assert body["closing_line"] == "[fake] 끝까지 연습해서 멋져요!"
     assert [item.result for item in env.ai.requests("feedback")[0].results] == ["not_shown"] * 4
 
 
@@ -203,7 +218,8 @@ def test_cards_follow_ai_order_and_have_no_cue_id(env):
     body = env.result(session_id).json()
 
     assert [card["level"] for card in body["cards"]] == [LEVELS["K1"], LEVELS["K2"], LEVELS["K3"]]
-    assert all(set(card) == {"level", "sentence"} for card in body["cards"])
+    assert [card["result"] for card in body["cards"]] == ["found", "missed", None]
+    assert all(set(card) == {"level", "sentence", "result"} for card in body["cards"])
 
 
 def test_feedback_request_uses_stored_results_messages_and_variant(env):
@@ -242,6 +258,125 @@ def test_result_can_be_requested_again(env):
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert env.ai.names().count("feedback") == 2
+
+
+# ==== A18 T-102 — tip·result·closing_line (DECISIONS #143~#148, ADR-0024) ===================
+
+
+def test_result_without_missed_clue_has_found_tips_and_no_missed_cards(env):
+    # ④ 경계 — 놓친 단서 0개
+    env.login_child(grade="H1")
+    session_id = env.ended(("correct",))
+    clues = SCENARIO_CLUES[env.session_row(session_id).scenario_id]
+
+    body = env.result(session_id).json()
+
+    assert body["missed"] == []
+    assert body["found"] == [cue_card(clues[0])]
+    assert body["found"][0]["tip"] == CONTENT.clues[clues[0]].tip
+    assert [card["result"] for card in body["cards"]] == ["found", None]
+
+
+def test_cards_result_matches_stored_judgment_and_closing_card_is_null(env):
+    env.login_child(grade="H1")
+    session_id = env.ended(("other", "correct"))
+    stored = {row.cue_id: row.outcome for row in env.cue_rows(session_id)}
+    feedback_cards: list[FeedbackCard] = []
+
+    def capture(req, res):
+        feedback_cards.extend(res.cards)
+        return res
+
+    env.ai.overrides["feedback"] = capture
+
+    body = env.result(session_id).json()
+
+    assert len(body["cards"]) == len(feedback_cards) + 1
+    assert [card["result"] for card in body["cards"][:-1]] == [stored[card.clue_id] for card in feedback_cards]
+    assert [card["sentence"] for card in body["cards"][:-1]] == [card.text for card in feedback_cards]
+    assert body["cards"][-1]["result"] is None
+    assert "result" in body["cards"][-1]  # 키는 항상 있다 (값만 null)
+
+
+def test_closing_line_is_ai_value_as_is_and_same_as_last_card(env):
+    # ⑤ N-12 — 백엔드가 문장을 고치지 않는다(앞뒤 공백·문장 그대로)
+    env.login_child(grade="H1")
+    session_id = env.ended(("other", "correct"))
+    closing = f"  {MARKER} 마무리 그대로  "
+    env.ai.overrides["feedback"] = lambda req, res: res.model_copy(update={"closing_line": closing})
+
+    body = env.result(session_id).json()
+
+    assert body["closing_line"] == closing
+    assert body["cards"][-1] == {"level": LEVELS["K3"], "sentence": closing, "result": None}
+
+
+def test_tip_is_content_value_as_is_and_not_ai_text(env):
+    # ⑤ N-12 — tip은 사본 값 그대로, AI 문장이 섞이지 않는다
+    env.login_child(grade="H1")
+    session_id = env.ended(("other", "correct"))
+    clues = SCENARIO_CLUES[env.session_row(session_id).scenario_id]
+    odd_tip = "  띄어쓰기  그대로인   팁 "
+    env.use_content(with_clue_tip(clues[0], odd_tip))
+    env.ai.overrides["feedback"] = lambda req, res: res.model_copy(
+        update={
+            "cards": [card.model_copy(update={"text": f"{MARKER} {card.clue_id}"}) for card in res.cards],
+            "closing_line": f"{MARKER} closing",
+        }
+    )
+
+    body = env.result(session_id).json()
+
+    assert body["missed"] == [{**cue_card(clues[0]), "tip": odd_tip}]
+    assert body["found"] == [cue_card(clues[1])]
+    assert all(MARKER not in card["tip"] for card in body["found"] + body["missed"])
+
+
+def test_long_tip_over_ai_limit_is_returned_as_is(env):
+    # ④ #147 — 길이 검사 없음: AI 상한(28자)을 넘는 tip도 200
+    env.login_child(grade="H1")
+    session_id = env.ended(("other", "correct"))
+    clues = SCENARIO_CLUES[env.session_row(session_id).scenario_id]
+    long_tip = "가" * 29 + "나" * 30
+    env.use_content(with_clue_tip(clues[0], long_tip))
+
+    response = env.result(session_id)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["missed"][0]["tip"] == long_tip
+
+
+def test_feedback_over_ai_length_limits_is_still_200(env):
+    # ④ #148 — 카드 text 45자·closing_line 30자 상한을 백엔드가 검사하지 않는다
+    env.login_child(grade="H1")
+    session_id = env.ended(("other", "correct"))
+    long_text = "다" * 46
+    long_closing = "라" * 31
+    env.ai.overrides["feedback"] = lambda req, res: res.model_copy(
+        update={
+            "cards": [card.model_copy(update={"text": long_text}) for card in res.cards],
+            "closing_line": long_closing,
+        }
+    )
+
+    response = env.result(session_id)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [card["sentence"] for card in body["cards"]] == [long_text, long_text, long_closing]
+    assert body["closing_line"] == long_closing
+
+
+def test_feedback_failure_503_body_has_no_new_fields(env):
+    # ④ AI feedback 실패 → 503 AI_UNAVAILABLE 유지, tip·closing_line 부분 응답 없음
+    env.login_child(grade="H1")
+    session_id = env.ended(("other", "correct"))
+    env.ai.fail.add("feedback")
+
+    response = env.result(session_id)
+
+    assert response.status_code == 503
+    assert response.json() == {"error": {"code": "AI_UNAVAILABLE", "message": "AI service is unavailable"}}
 
 
 # ==== A18 404·409 — AI 미호출 =========================================================

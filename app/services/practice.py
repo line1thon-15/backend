@@ -83,15 +83,21 @@ class SessionOutput:
 
 @dataclass(frozen=True)
 class CueCardOutput:
+    """A18 ResultCueCard — tip은 사본 clues.json 값 그대로 (T-102, DECISIONS #143)."""
+
     cue_id: str
     label: str
     sentence: str
+    tip: str
 
 
 @dataclass(frozen=True)
 class ResultCardOutput:
+    """result: AI 카드 판정("found"/"missed"), 마지막 마무리 카드는 None (T-102, DECISIONS #144)."""
+
     level: str
     sentence: str
+    result: str | None
 
 
 @dataclass(frozen=True)
@@ -102,6 +108,7 @@ class ResultOutput:
     normal_outcome: str | None
     cards: tuple[ResultCardOutput, ...]
     can_retry: bool
+    closing_line: str  # AI feedback closing_line 그대로 = cards 마지막 카드 sentence (DECISIONS #145)
 
 
 def _utcnow() -> datetime:
@@ -622,8 +629,9 @@ class PracticeService:
 
         # check_feedback(V3')가 카드 result = 저장된 판정임을 보장 — levels에 항상 있음
         cards = tuple(
-            ResultCardOutput(level=levels[card.result], sentence=card.text) for card in response.cards
-        ) + (ResultCardOutput(level=levels[None], sentence=response.closing_line),)
+            ResultCardOutput(level=levels[card.result], sentence=card.text, result=card.result)
+            for card in response.cards
+        ) + (ResultCardOutput(level=levels[None], sentence=response.closing_line, result=None),)
 
         return ResultOutput(
             session_id=record.session_id,
@@ -632,6 +640,7 @@ class PracticeService:
             normal_outcome=record.normal_outcome,
             cards=cards,
             can_retry=self._can_retry(record),
+            closing_line=response.closing_line,
         )
 
     def _card_level(self, record: PracticeSessionRecord, card_result: str | None) -> str:
@@ -648,12 +657,13 @@ class PracticeService:
         stored: Mapping[str, str],
         outcome: str,
     ) -> tuple[CueCardOutput, ...]:
-        """콘텐츠 설명으로만 만든다 — AI 문장을 섞지 않는다 (#101, T-87 clues.json name·description)."""
+        """콘텐츠 설명으로만 만든다 — AI 문장을 섞지 않는다 (#101, T-87 clues.json name·description, T-102 tip)."""
         return tuple(
             CueCardOutput(
                 cue_id=clue_id,
                 label=self._content.clues[clue_id].name,
                 sentence=self._content.clues[clue_id].description,
+                tip=self._content.clues[clue_id].tip,
             )
             for clue_id in target_cue_ids
             if stored.get(clue_id) == outcome

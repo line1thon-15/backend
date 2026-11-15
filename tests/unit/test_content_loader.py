@@ -50,7 +50,7 @@ def test_real_content_loads_with_expected_areas_and_scenarios() -> None:
     content = _load(DATA_DIR)
 
     assert content.area_ids == ("scam", "identity_lending", "friend_pressure")
-    # T-30: ai dev 8d900d1 — 영역마다 4개 (F-15 1차 3개 영역)
+    # T-30: ai dev 8d900d1 — 영역마다 4개 (F-15 1차 3개 영역). T-102 재고정(25a3ef4)에서 시나리오 파일 변경 없음
     areas = {sid: entry.area for sid, entry in content.scenarios.items()}
     assert areas == {
         "scam_dm_parttime_01": "scam",
@@ -111,7 +111,8 @@ def test_every_scenario_platform_has_an_app_type() -> None:
 
 def test_ai_copy_matches_pinned_source_hashes() -> None:
     source = (AI_DIR / "SOURCE.txt").read_text(encoding="utf-8")
-    assert "8d900d1bb7167d71f06329dc0a00aab4fef2ebd0" in source
+    # T-102 재고정 (DECISIONS #149): ai dev 25a3ef4 — 이전 고정 8d900d1
+    assert "고정 커밋: 25a3ef4f5d87d4d30fce561ee34f586407642ac6" in source
     lf_section = source.split("SHA-256 (LF 기준", 1)[1].split("참고 —", 1)[0]
     expected = dict(
         (name, digest)
@@ -129,6 +130,18 @@ def test_ai_copy_matches_pinned_source_hashes() -> None:
     for name, digest in expected.items():
         raw = (AI_DIR / name).read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(raw).hexdigest() == digest, name
+
+
+def test_real_content_clues_read_tip_from_pinned_copy() -> None:
+    # T-102 ③(가)': AiClue.tip 필수 — 값은 사본 clues.json 그대로 (DECISIONS #147, ai 25a3ef4)
+    content = _load(DATA_DIR)
+    raw = json.loads((AI_DIR / "clues.json").read_text(encoding="utf-8"))
+
+    assert {clue["id"]: clue["tip"] for clue in raw["clues"]} == {
+        clue_id: clue.tip for clue_id, clue in content.clues.items()
+    }
+    assert content.clues["too_good_pay"].tip == "쉬운 일에 큰돈을 준다면 의심해 봐요"
+    assert all(clue.tip.strip() for clue in content.clues.values())
 
 
 def test_legacy_backend_content_files_are_not_created() -> None:
@@ -234,6 +247,61 @@ def test_clue_with_unknown_area_fails(data_dir: Path) -> None:
 
     _edit(data_dir / "ai" / "clues.json", change)
     _expect_failure(data_dir, "identity")
+
+
+# ---- 단서 tip (T-102 ④ — DECISIONS #147: 없음·공백만 → 시작 실패, 길이 검사 없음) ------------
+
+
+def test_clue_without_tip_fails(data_dir: Path) -> None:
+    _edit(data_dir / "ai" / "clues.json", lambda d: d["clues"][0].pop("tip", None))
+    _expect_failure(data_dir, "tip")
+
+
+@pytest.mark.parametrize("tip", ["", "   \n\t "])
+def test_blank_clue_tip_fails(data_dir: Path, tip: str) -> None:
+    def change(d: dict) -> None:
+        d["clues"][0]["tip"] = tip
+
+    _edit(data_dir / "ai" / "clues.json", change)
+    _expect_failure(data_dir, "tip")
+
+
+def test_null_clue_tip_fails(data_dir: Path) -> None:
+    def change(d: dict) -> None:
+        d["clues"][0]["tip"] = None
+
+    _edit(data_dir / "ai" / "clues.json", change)
+    _expect_failure(data_dir, "tip")
+
+
+def test_long_clue_tip_is_accepted_as_is(data_dir: Path) -> None:
+    # AI 상한(28자)을 넘어도 백엔드는 길이를 검사하지 않고 고치지도 않는다 (#147, N-12)
+    long_tip = "  " + "가" * 60 + "  "
+
+    def change(d: dict) -> None:
+        d["clues"][0]["tip"] = long_tip
+
+    _edit(data_dir / "ai" / "clues.json", change)
+    raw_id = json.loads((data_dir / "ai" / "clues.json").read_text(encoding="utf-8"))["clues"][0]["id"]
+
+    assert _load(data_dir).clues[raw_id].tip == long_tip
+
+
+def test_create_app_refuses_to_start_with_blank_clue_tip(data_dir: Path, sqlite_url: str) -> None:
+    from app.content.loader import ContentValidationError
+    from app.core.config import Settings
+    from app.main import create_app
+
+    def change(d: dict) -> None:
+        d["clues"][0]["tip"] = " "
+
+    _edit(data_dir / "ai" / "clues.json", change)
+
+    with pytest.raises(ContentValidationError, match="tip"):
+        create_app(
+            Settings(_env_file=None, database_url=sqlite_url, ai_client="fake"),
+            content_dir=data_dir,
+        )
 
 
 def test_scenario_file_with_unknown_area_fails(data_dir: Path) -> None:

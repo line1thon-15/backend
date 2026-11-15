@@ -1,7 +1,7 @@
 """HttpPracticeAI — 백엔드 → AI 서비스 HTTP 호출 (Tasks T-94, Architecture "1차 내부 API v1"·"백엔드 쪽 처리").
 
 외부 호출은 httpx.MockTransport로 격리한다 — 실제 네트워크 호출 0회.
-요청·응답 본문은 tests/contracts/ai/ 계약 샘플(ai 저장소 dev 8d900d1 사본 — T-100 재고정)을 쓴다.
+요청·응답 본문은 tests/contracts/ai/ 계약 샘플(ai 저장소 dev 25a3ef4 사본 — T-102 재고정)을 쓴다.
 응답 검증 규칙(VA·ST·TU·J'·V'·S)은 services 몫이라 여기서는 Pydantic 스키마 검증까지만 본다.
 """
 
