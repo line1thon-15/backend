@@ -40,7 +40,9 @@ bash scripts/init.sh "프로젝트명"
 | 영역 | 엔드포인트 | 세션 | 비고 |
 |---|---|---|---|
 | 헬스 | `GET /health` | 없음 | 해당 없음 |
-| 인증·아이 관리 | `POST /guardians`, `POST /auth/guardian/login`, `POST /auth/child/login`, `GET /auth/me`(A6, 아래 표 아래 설명), `POST·GET /children`, `POST /children/{child_id}/pin-reset`, `POST /children/{child_id}/link-code` | 보호자 | 보호자 전용 API는 아이 세션에 401(T-25 A11만 403). `GET /auth/me`는 보호자·아이 세션 모두 허용 |
+| 인증(공개) | `POST /guardians`, `POST /auth/guardian/login`, `POST /auth/child/login` | 없음 | 세션 없이 호출한다(`app/api/auth.py`에 인증 의존성 없음). 로그인 성공 시 세션 쿠키를 설정한다 |
+| 현재 사용자 확인(A6) | `GET /auth/me` | 보호자·아이 | 두 역할 모두 허용, 세션이 없거나 무효이면 401 `UNAUTHENTICATED` |
+| 아이 관리 | `POST·GET /children`, `POST /children/{child_id}/pin-reset`, `POST /children/{child_id}/link-code` | 보호자 | 모두 `Depends(require_guardian_id)`(`app/api/children.py`). 보호자 전용 API는 아이 세션에 401(T-25 A11만 403) |
 | 온보딩(A12) | `PUT /me/onboarding` | 아이 | 보호자 세션은 403 `FORBIDDEN_ROLE`, 세션이 없거나 무효·만료는 401 |
 | 믿는 사람 연락 기록(A14) | `POST /me/trusted-contact-events` | 아이 | 보호자 세션은 403 `FORBIDDEN_ROLE`, 세션이 없으면 401 `UNAUTHENTICATED` |
 | 홈·성장(A13·A19) | `GET /me/home`, `GET /me/growth` | 아이 | 보호자 세션은 403 `FORBIDDEN_ROLE` |
