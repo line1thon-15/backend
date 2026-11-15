@@ -31,16 +31,18 @@ bash scripts/init.sh "프로젝트명"
 
 느린학습자(경계선 지능) 청소년이 위험하거나 어려운 상황을 AI와 안전하게 반복 연습하도록 돕는 반응형 웹 서비스의 **백엔드 저장소**다 (서비스명 미정, 근거: [docs/PRD.md](docs/PRD.md) 머리글·한 줄 정의). Python + FastAPI 백엔드이며 프론트·AI 서비스는 별도 저장소다([Architecture](docs/Architecture.md) 참조).
 
-### 현재 상태 (2026-11-15, `dev` 377b573 기준)
+### 현재 상태 (2026-11-15, `dev` 7cbae24 기준)
 
-아래는 모두 `dev`에 병합된 상태다. 기능 PR: #23(T-67)·#25(T-94)·#26(T-36)·#27(T-97)·#29(T-76)·#30(T-95·T-96)·#31(T-98)·#32(T-40)·#33(T-49), 문서 PR #28. 병합 후 `dev` 377b573에서 메인 세션이 전체 테스트를 실행해 1003 passed·종료 코드 0이었다(`.artifacts/verification/ADHOC/dev-377b573-20261115T073341/`, 인용 — 이번 문서 갱신에서 다시 실행하지 않음). 그 밖의 통과 수는 각 작업의 QA·리뷰 보고(`docs/Tasks.md`)에서 가져온 인용값이다. 변경 이력은 [docs/CHANGELOG.md](docs/CHANGELOG.md)다.
+아래는 모두 `dev`에 병합된 상태다. 기능 PR: #23(T-67)·#25(T-94)·#26(T-36)·#27(T-97)·#29(T-76)·#30(T-95·T-96)·#31(T-98)·#32(T-40)·#33(T-49)·#35(T-30, 병합 커밋 fce3b33)·#36(Neon 기존 DB용 호환 리비전·`/auth/me`·진단 문구, 병합 커밋 5008829), 문서 PR #28·#37(DECISIONS #137~#142·ADR-0022·0023, 병합 커밋 7cbae24). #35~#37은 githeobu가 2026-11-15 00:32~00:33Z에 병합했다. 병합 후 `dev` 7cbae24에서 메인 세션이 전체 테스트를 실행해 1028 passed·종료 코드 0이었다(`.artifacts/verification/ADHOC/dev-7cbae24-20261115T101547/`의 `stdout.txt` 끝줄 "1028 passed, 31 warnings in 584.91s"·`exit_code.txt` 0을 이번에 직접 열어 확인했고, 테스트는 다시 실행하지 않음). PR #38(T-100)은 열려 있고 `dev`에 병합되지 않았다. 그 밖의 통과 수는 각 작업의 QA·리뷰 보고(`docs/Tasks.md`)에서 가져온 인용값이다. 변경 이력은 [docs/CHANGELOG.md](docs/CHANGELOG.md)다.
 
 **제공 API** (모두 `/api/v1` 아래, 라우터 `app/api/*.py` 기준)
 
 | 영역 | 엔드포인트 | 세션 | 비고 |
 |---|---|---|---|
 | 헬스 | `GET /health` | 없음 | 해당 없음 |
-| 인증·아이 관리 | `POST /guardians`, `POST /auth/guardian/login`, `POST /auth/child/login`, `POST·GET /children`, `POST /children/{child_id}/pin-reset`, `POST /children/{child_id}/link-code` | 보호자 | 보호자 전용 API는 아이 세션에 401(T-25 A11만 403) |
+| 인증(공개) | `POST /guardians`, `POST /auth/guardian/login`, `POST /auth/child/login` | 없음 | 세션 없이 호출한다(`app/api/auth.py`에 인증 의존성 없음). 로그인 성공 시 세션 쿠키를 설정한다 |
+| 현재 사용자 확인(A6) | `GET /auth/me` | 보호자·아이 | 두 역할 모두 허용, 세션이 없거나 무효이면 401 `UNAUTHENTICATED` |
+| 아이 관리 | `POST·GET /children`, `POST /children/{child_id}/pin-reset`, `POST /children/{child_id}/link-code` | 보호자 | 모두 `Depends(require_guardian_id)`(`app/api/children.py`). 보호자 전용 API는 아이 세션에 401(T-25 A11만 403) |
 | 온보딩(A12) | `PUT /me/onboarding` | 아이 | 보호자 세션은 403 `FORBIDDEN_ROLE`, 세션이 없거나 무효·만료는 401 |
 | 믿는 사람 연락 기록(A14) | `POST /me/trusted-contact-events` | 아이 | 보호자 세션은 403 `FORBIDDEN_ROLE`, 세션이 없으면 401 `UNAUTHENTICATED` |
 | 홈·성장(A13·A19) | `GET /me/home`, `GET /me/growth` | 아이 | 보호자 세션은 403 `FORBIDDEN_ROLE` |
@@ -48,14 +50,16 @@ bash scripts/init.sh "프로젝트명"
 | 보호자 리포트(A11) | `GET /children/{child_id}/report` | 보호자 | 아이 세션은 403 `FORBIDDEN_ROLE` |
 
 **연습 API (A15~A18)**
-- A15 `POST /practice/sessions`는 세 모드(`area`·`retry`·`mission`)를 받는다. `mode:"area"`+`area`는 영역별 출제(영역 값 `scam`·`identity_lending`·`friend_pressure`)이고, `mode:"retry"`+`retry_of`는 끝난 세션의 다시 도전(영역은 원 세션 값)이며, `mode:"mission"`은 아래 오늘의 미션(T-49)이다. 지금 콘텐츠로는 고등학생만 출제된다(사기 시나리오 2개가 `min_grade H1`, CHANGELOG T-15 인용).
-- **오늘의 미션 `mode:"mission"` (T-49) — PR #33, dev에 병합됨(병합 커밋 377b573)** — 구현 커밋 0715f41. `{"mode":"mission"}`이 영역 없이 기존 출제 규칙으로 새로 출제하고(`area`·`retry_of`를 함께 보내면 422, `draw_index`는 area 모드와 순번 공유), 누를 때마다 새로 출제한다(하루 1개 고정·영역 선택·완료 표시는 PRD OQ 13 미결). 현재 콘텐츠는 사기 영역(고1 이상)뿐이라 중학생 이하는 409다. 영역 간 출제는 테스트용 임시 콘텐츠로만 검증했다. QA 989 passed(`.artifacts/verification/T-49/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음). 병합 후 `dev` 전체는 1003 passed(위 "현재 상태" 인용).
-- **영역 출제 활성화 (T-30) — PR #35, dev 미병합**(https://github.com/line1thon-15/backend/pull/35, base dev, 열림; 브랜치 `feat/T-30-areas`, 커밋 1527c00) — 위 서술은 모두 `dev` 기준이며 PR #35는 아직 반영되지 않았다. 병합되면 AI 콘텐츠 사본이 ai dev 8d900d1(12개 시나리오: `scam`·`identity_lending`·`friend_pressure` 각 4)로 바뀌어 area 모드에서 두 영역이 출제되고 mission 후보에 세 영역이 포함되며, 중학생 이하도 사기 영역 시나리오를 받아 위 T-49의 409 한계와 "고등학생만 출제" 서술이 해소된다. 앱 코드 변경 없음(콘텐츠·보충 파일·테스트). QA 1022 passed·종료 코드 0(`.artifacts/verification/T-30/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음). 학년 값·사기 subtype은 잠정값(PRD OQ 3), AI 계약 샘플은 331d2c6 고정 유지, `opening_choices`는 백엔드가 무시한다.
+- A15 `POST /practice/sessions`는 세 모드(`area`·`retry`·`mission`)를 받는다. `mode:"area"`+`area`는 영역별 출제(영역 값 `scam`·`identity_lending`·`friend_pressure`)이고, `mode:"retry"`+`retry_of`는 끝난 세션의 다시 도전(영역은 원 세션 값)이며, `mode:"mission"`은 아래 오늘의 미션(T-49)이다. 영역별 출제는 T-30 병합(PR #35)으로 세 영역 모두 가능하다(아래 T-30 항목).
+- **오늘의 미션 `mode:"mission"` (T-49) — PR #33, dev에 병합됨(병합 커밋 377b573)** — 구현 커밋 0715f41. `{"mode":"mission"}`이 영역 없이 기존 출제 규칙으로 새로 출제하고(`area`·`retry_of`를 함께 보내면 422, `draw_index`는 area 모드와 순번 공유), 누를 때마다 새로 출제한다(하루 1개 고정·영역 선택·완료 표시는 PRD OQ 13 미결). 당시에는 사기 영역(고1 이상)뿐이라 중학생 이하는 409였으나 T-30 병합(PR #35)으로 해소됐다(아래 T-30 항목). QA 989 passed(`.artifacts/verification/T-49/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음). 병합 후 `dev` 전체는 1003 passed(위 "현재 상태" 인용).
+- **영역 출제 활성화 (T-30) — PR #35, dev에 병합됨(병합 커밋 fce3b33, githeobu, 2026-11-15)**(https://github.com/line1thon-15/backend/pull/35; 브랜치 `feat/T-30-areas`, 구현 커밋 1527c00) — AI 콘텐츠 사본이 ai dev 8d900d1(12개 시나리오: `scam`·`identity_lending`·`friend_pressure` 각 4)로 바뀌어 area 모드에서 두 영역이 출제되고 mission 후보에 세 영역이 포함되며, 중학생 이하도 사기 영역 시나리오를 받아 위 T-49의 409 한계와 "고등학생만 출제" 서술은 해소됐다. 앱 코드 변경 없음(콘텐츠·보충 파일·테스트). QA 1022 passed·종료 코드 0(`.artifacts/verification/T-30/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음). 병합 후 `dev` 전체는 1028 passed(위 "현재 상태"). 학년 값·사기 subtype은 잠정값(PRD OQ 3), AI 계약 샘플은 331d2c6 고정 유지, `opening_choices`는 백엔드가 무시한다(PR #38 병합 시 해소).
+- **AI 시작 선택지 전달 (T-100) — PR #38, dev 미병합**(https://github.com/line1thon-15/backend/pull/38, base dev, 열림; 브랜치 `feat/T-100-opening-choices`, 커밋 006066b·437b880·760cf73) — 위 서술은 모두 `dev` 기준이며 PR #38은 아직 반영되지 않았다. 병합되면 AI 변형의 `opening_choices`(선택, 각 1~60자)가 버려지지 않고 start·turn·judge·feedback 요청에 전달된다(없으면 null, 위반 시 503). AI 계약 샘플은 ai dev 8d900d1로 재고정된다. 기능이 동작하려면 AI가 ai 8d900d1 이후여야 한다(옛 AI도 null 키는 거부하지 않음). 리뷰 치명 0·권고 2, QA 1053 passed·종료 코드 0(`.artifacts/verification/T-100/qa-20261115-1/`, 인용 — 이번에 다시 실행하지 않음). 설계 근거 DECISIONS #137~#139·ADR-0022(이 브랜치).
 - A17 요청은 `{choice_id, turn_index}`이고 둘 다 필수다. 현재 턴이 아닌 `turn_index`는 409 `TURN_ALREADY_ANSWERED`, 동시 충돌은 `TURN_ALREADY_ANSWERED`·`SESSION_ENDED`·`SESSION_STOPPED`, `turn_index` 누락·음수·비정수는 422 `VALIDATION_ERROR`다(T-91).
 - A18 결과는 찾은/놓친 단서 카드와 `can_retry`를 준다. 카드 색은 K1 green / K2 yellow / K3 green / K4 green / K5 yellow다(DECISIONS #120). 정상 상황 출제가 1차에서 꺼져 있어 정상 상황 결과 조회는 범위 밖이다.
 - 출제는 약점 단서(놓침 2회 이상 + 최근 놓침, 최대 3개)를 가진 시나리오를 우선하고(T-36), 세션 `hint_level`은 저장만 한다 — 화면의 `hint`는 항상 null이다. `HINT_MAX=2`는 잠정값(PRD OQ 14)이다.
 - 다시 도전에서 AI 변형 응답이 대체 응답(fallback)이고 직전과 같은 조합이면 다른 조합으로 1회 다시 요청하고, 재요청도 fallback이면 같은 모습으로 진행한다(T-95, ADR-0019). AI 오류는 503이다. 연습 시작의 종료 기록 조회는 1회다(T-96).
-- DB: 마이그레이션 `20261112_04`(`practice_sessions`·`practice_turns`·`cue_results`)와 `20261112_05`(`guardian_notices`). PostgreSQL에서의 마이그레이션은 미검증이다.
+- DB: 마이그레이션 `20261112_04`(`practice_sessions`·`practice_turns`·`cue_results`)와 `20261112_05`(`guardian_notices`). PR #36(githeobu)이 `20261111_05`(동작 없는 호환 리비전, `alembic/versions/20261111_05_legacy_compat.py`)를 추가했다 — 옛 분할 마이그레이션 체인에서 `20261111_05`가 이미 기록된 기존 Neon DB를 위한 것이고 `20261112_04`의 `down_revision`이 이것을 가리킨다. PostgreSQL에서의 마이그레이션 검증은 이 저장소의 확인 범위 밖이다(미검증).
+- **`GET /auth/me`(A6, PR #36)** — 세션 쿠키 `sid`로 현재 사용자를 돌려준다(`app/api/auth.py`, `origin/dev` 기준 확인). 보호자는 `{role:"guardian", guardian_id, email}`, 아이는 `{role:"child", nickname, grade, onboarding_completed, display:{font_scale, high_contrast, tts_enabled}}`이고, 세션이 없거나 무효이면 401 `UNAUTHENTICATED`다. 역할 제한은 없다(두 역할 모두 허용). 같은 PR에서 진단 3문항 문구가 `app/content/data/diagnosis.json`에서 "모르는 사람이 말을 걸면 대답해요"·"친구 부탁은 거절하기 어려워요"·"돈이나 물건 이야기는 헷갈려요"(선택지 "그래요"·"가끔"·"아니에요")로 바뀌었다.
 
 **보호자 리포트 A11과 요약 (T-25·T-76·T-98)**
 - 영역별 진행·약점 단서·`metrics`·알림 목록을 준다(원문 비공개). 성장 지표·배지·연속 기록은 T-45·T-46 계산 계층을 쓴다.
@@ -158,6 +162,7 @@ AI_SERVICE_TIMEOUT_SECONDS=30               # 기본 30, 0보다 큰 유한한 �
   - 실제 Gemini 확인은 시나리오 `scam` 흐름뿐이다. 다른 영역·모델에서의 품질·지연은 미검증이다.
   - 요약 호출은 오래 걸린다(측정 12~19초). 25초 상한을 넘으면 `unavailable`이다.
   - AI 쪽 정상 상황 응답 형태가 백엔드 포트와 달라 1차에서는 정상 상황 출제가 꺼져 있다.
+  - 프론트 `FirstSetup.jsx`의 진단 문구는 아직 옛 문구다(메인 세션 확인, 프론트 dev fedf631 기준, 인용 — 이번에 직접 확인하지 않음). 백엔드 진단 문구(PR #36)와 어긋난다.
 
 ## 시연 예시 데이터 적재 (T-67)
 
