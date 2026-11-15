@@ -182,7 +182,8 @@ def test_fake_ci_quoted_indicator_characters_are_plain_values(value):
 
 
 # ---- 가짜 ci 텍스트: pytest-postgres job env의 libpq 접속 대상 변수 (T-101 리뷰 권고 3) ---------------------
-# 가드는 이 변수들이 설정된 실행을 런타임에 실패시킨다 — CI 설정 단계에서 정적으로 먼저 잡는다.
+# 가드는 이 변수들이 비어 있지 않은 값으로 설정된 실행을 런타임에 실패시킨다 — CI 설정 단계에서 정적으로 먼저 잡는다
+# (빈 값 키도 보수적으로 보고).
 # 목록은 가드 상수(LIBPQ_TARGET_ENV_VARS)와 같아야 한다 — 아래 상수 대조 테스트가 드리프트를 잡는다.
 CI_BLOCKED_LIBPQ_ENV = ["PGSERVICE", "PGSERVICEFILE", "PGHOSTADDR", "PGPORT", "PGOPTIONS", "PGPASSFILE"]
 POSTGRES_JOB_ENV_LINE = "      AI_CLIENT: fake\n      TEST_POSTGRES_URL"
