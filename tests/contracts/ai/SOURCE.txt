@@ -1,22 +1,40 @@
 AI 계약 샘플 사본 — 직접 수정 금지. AI 계약이 바뀌면 원본 커밋을 다시 정하고 통째로 다시 복사한다.
 
 원본 저장소: line1thon-15/ai
-브랜치: feature/ai
-고정 커밋: 331d2c63481ea212105c466caba86a28acd9dea7 (331d2c6)
-원본 경로: contracts/*.json (12개)
-복사일: 2026-11-11 (T-86)
-고정 근거: docs/Tasks.md T-86 완료 조건 ①(라) — 사용자 답 "331d2c6에 지금 고정 (추천)"
+브랜치: dev
+고정 커밋: 8d900d1bb7167d71f06329dc0a00aab4fef2ebd0 (8d900d1)
+원본 경로: contracts/*.json 중 아래 12개 (8d900d1의 contracts/에는 24개가 있다 — 나머지 12개(practice.deep.*, practice.normal.*, practice.start.hint.*)는 이번 범위 밖이라 복사하지 않았다)
+복사 방법: git -C <ai 로컬 저장소> show 8d900d1:contracts/<파일> > <파일> (12개 통째로)
+복사일: 2026-11-15 (T-100)
+고정 근거: docs/DECISIONS.md #139(3A)·docs/adr/0022-variant-opening-choices.md 규칙 6 — 사용자 답 "추천안대로 확정". 콘텐츠 사본(app/content/data/ai/)과 같은 커밋을 목표로 한다(T-87 원칙 — PR #35 병합 후 일치)
+이전 고정: feature/ai 331d2c6 (2026-11-11, T-86 — 사용자 답 "331d2c6에 지금 고정 (추천)")
 
-SHA-256 (복사 직후 원본과 대조 일치):
+대조: 12개 모두 git hash-object 결과가 8d900d1 `git ls-tree` blob id와 일치(복사 직후 확인).
+
+SHA-256 (LF — 원본 blob 바이트 그대로, 복사 직후 값):
+ad587d8b179ba3f63dda20f29505e512c58c9a5c2c92c6b7a55f431780d74351 *practice.feedback.request.json
+03070e26fa32d73b1bbfd99e14dd085f45631d44054f3d4b23f593e640999c22 *practice.feedback.response.json
+d3faac5fd84fed5025c098f942ac69cc3a62f829c0b20ea65b0b6c4256cde104 *practice.judge.request.json
+a52484d06681fd5d67b896419e79e95335a88f1ced11ea84d241343fe9849ff8 *practice.judge.response.json
+200f2bcea57507820701245381a981e9dfb4dca41eeb0dff1dc437f126c9694e *practice.start.request.json
+f75a6ebfdcbd099320c3a6f207dfd9a41c5d277a6698ae7089a87470a0ae4e3f *practice.start.response.json
+fbb687dbc05e5ffeb9bb81d585390be359890cac882b6849cb80229b3c24f73d *practice.turn.request.json
+501b1defff538c908250d153880692d23e8bc740551aa3b472fdc53aadc77011 *practice.turn.response.json
+3088b16cc42241409ce922f1c4777730aab8a009bec62e74db435fa7e63f8eb9 *practice.variant.request.json
+249a2aeed3ccc1769df4e0dbfd319c45bfb40c42c26f219caf469561def76bb7 *practice.variant.response.json
+11b56ca91deedf2d69d6e3f10f8d8b5bb8409f2dd82d0d758d628b1602b2dbf8 *summary.request.json
+eb2d28edec314c813673ac2173508ad2a4fb6444acfcb6bc1c842913c092b750 *summary.response.json
+
+SHA-256 (CRLF — Windows 체크아웃(.gitattributes `* text=auto`) 바이트. 이전 331d2c6 기록은 이 방식이었다):
 d4b5e53f4a56d4da315420e4b55aa0af501c3f1288279193a65137f12c50731e *practice.feedback.request.json
-b044a5c697b3a2257dd5ad0106c1b8cecd82fbdc1abbf0bbf83b64f0a11cafc8 *practice.feedback.response.json
-26249d6ca8e1831e99c2d54114c04c4e53c701ed9e2b00a03b250f905df9124a *practice.judge.request.json
-13431a7026b2b76bc4177a309d8db1f51cf0e943b4b2e3abdd5117b72aee339a *practice.judge.response.json
+4e696e8e2f39e7a454cd67c58acfe99acdb1f48bb9938c4a77ba8b173280c303 *practice.feedback.response.json
+2e9bd8b93886311fd168547c4c30e6cbf6c681ebbeb271cef1e4344e2e0a3730 *practice.judge.request.json
+782b2af4318318e63b64ba87dc14d19d221503ae8eb4c4362d5009c59dc604be *practice.judge.response.json
 e9710bbb675b85443d079b406db2a5b3ececaf19b260362911f22d337c9e0d52 *practice.start.request.json
-1d98777089e0a5c370341cd4a20a64d2283a4806d7c3778188cfba5166c1b5f5 *practice.start.response.json
+9b7f64e3497ca5559f085af0962ff2613eefac1296b73da9f2dbdaf8487e8333 *practice.start.response.json
 c664d3df1f525bed19bffe59d16ccc306513a9faf54582dfc9e147c0f928baab *practice.turn.request.json
-27396fcf1cc4ef78455c5984681712144a81722ad4129e65286238a1d77632c4 *practice.turn.response.json
+3f3a227e72a736cad4b624b2913d6a1004a1d11ba33c477018db81c650c18cdb *practice.turn.response.json
 085e0470a9ee0c02875aaf592dccc9fe83b40d294247d404ea28080ee7952022 *practice.variant.request.json
-e4c4ebb8d1a9be15187d9370d9463696718013d373816b63ef7472ad2a43e0f3 *practice.variant.response.json
-20387cc41ec1a0e7d82b0ea58fc94203bc496a61397f9e34e09f8992eafe6346 *summary.request.json
+a5a4d613474ea2788cadaf574a2b59ae5cb76c8aa95da6ceccaebcab12dada7b *practice.variant.response.json
+aed59103fd12ca404656e7ee27fd8fe7bc613e69f20c3fc28b4e28905e8a67dd *summary.request.json
 1f8b7d81cb1eba07c4f07e562aedc61a57e6256a512c25aecf1635a40bda6770 *summary.response.json

@@ -1,6 +1,6 @@
 """AI 포트·DTO = AI 계약 v1 (Architecture "1차 내부 API v1", DECISIONS #96·#97·#104·#112·#115, ADR-0017, Tasks T-86).
 
-계약 샘플은 tests/contracts/ai/ — ai 저장소 feature/ai 331d2c6 contracts/*.json 사본(SOURCE.txt).
+계약 샘플은 tests/contracts/ai/ — ai 저장소 dev 8d900d1 contracts/*.json 사본(SOURCE.txt, T-100 재고정).
 응답 검증 규칙(VA·ST·TU·J'·V'·S)은 범위 밖(T-15·T-16·T-76) — 여기서는 필드·타입만 본다.
 """
 
@@ -51,6 +51,22 @@ SAMPLE_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
+# 계약 샘플(ai 8d900d1)에는 있지만 백엔드 모델이 아직 채택하지 않은 최상위 필드 — 파일별로 좁게 둔다.
+# T-100 사용자 결정 원문 "A: 미사용 필드로 명시". 해당 작업이 필드를 채택하면 여기서 지운다.
+UNADOPTED_FIELDS: dict[str, frozenset[str]] = {
+    "practice.start.response.json": frozenset({"hint"}),  # 채택: T-37·T-74 (힌트)
+    "practice.turn.response.json": frozenset({"hint"}),  # 채택: T-37·T-74 (힌트)
+    "practice.judge.response.json": frozenset({"normal_outcome"}),  # 채택: T-34·T-35 (정상 상황)
+    "practice.feedback.response.json": frozenset({"normal_feedback"}),  # 채택: T-34·T-35 (정상 상황)
+}
+
+
+def comparable_sample(name: str, data: dict) -> dict:
+    """원문에서 그 파일의 채택하지 않은 필드만 뺀 사본 — 비교 기준."""
+    skipped = UNADOPTED_FIELDS.get(name, frozenset())
+    return {key: value for key, value in data.items() if key not in skipped}
+
+
 def load_sample(name: str) -> dict:
     return json.loads((CONTRACT_DIR / name).read_text(encoding="utf-8"))
 
@@ -73,9 +89,10 @@ def test_contract_dir_has_exactly_the_12_pinned_samples():
 def test_contract_source_records_pinned_commit():
     source = (CONTRACT_DIR / "SOURCE.txt").read_text(encoding="utf-8")
 
+    # T-100 재고정 (DECISIONS #139 3A): ai dev 8d900d1 — 콘텐츠 사본과 같은 커밋
     assert "line1thon-15/ai" in source
-    assert "feature/ai" in source
-    assert "331d2c6" in source
+    assert "브랜치: dev" in source
+    assert "고정 커밋: 8d900d1" in source
 
 
 @pytest.mark.parametrize("name", sorted(SAMPLE_MODELS))
@@ -85,7 +102,38 @@ def test_contract_sample_parses_without_losing_fields(name):
     parsed = SAMPLE_MODELS[name].model_validate(data)
 
     # 모델에 없는 필드는 응답 모델에서 버려지므로, 덤프가 원문과 같으면 필드 이름·값이 모두 대응한다.
-    assert parsed.model_dump(mode="json", exclude_unset=True) == data
+    # 채택하지 않은 필드(UNADOPTED_FIELDS)만 원문에서 빼고 비교한다 — 그 밖의 새 필드는 여전히 실패한다.
+    assert parsed.model_dump(mode="json", exclude_unset=True) == comparable_sample(name, data)
+
+
+def test_unlisted_new_field_still_fails_contract_comparison():
+    # 목록에 없는 필드가 AI 샘플에 생기면 계속 잡아낸다 (T-100 사용자 결정 "A: 미사용 필드로 명시")
+    name = "practice.start.response.json"
+    data = {**load_sample(name), "brand_new_field": "x"}
+
+    parsed = SAMPLE_MODELS[name].model_validate(data)
+
+    assert parsed.model_dump(mode="json", exclude_unset=True) != comparable_sample(name, data)
+
+
+def test_unadopted_field_is_excluded_only_for_its_own_file():
+    # 목록은 파일별이다 — start·turn의 hint를 judge 응답에 넣으면 빠지지 않고 실패한다
+    name = "practice.judge.response.json"
+    data = {**load_sample(name), "hint": None}
+
+    parsed = SAMPLE_MODELS[name].model_validate(data)
+
+    assert parsed.model_dump(mode="json", exclude_unset=True) != comparable_sample(name, data)
+
+
+@pytest.mark.parametrize("name", sorted(UNADOPTED_FIELDS))
+def test_unadopted_fields_exist_in_sample_and_not_in_model(name):
+    # 목록이 낡지 않게: 샘플에 실제로 있고, 모델에는 아직 없는 필드만 둔다 (채택하면 목록에서 지운다)
+    data = load_sample(name)
+
+    for field in UNADOPTED_FIELDS[name]:
+        assert field in data, (name, field)
+        assert field not in SAMPLE_MODELS[name].model_fields, (name, field)
 
 
 # ---- (나) 열거값 ------------------------------------------------------------
