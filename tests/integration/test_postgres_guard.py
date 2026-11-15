@@ -203,3 +203,47 @@ def test_reset_with_non_local_host_is_refused_without_connecting():
         reset_public_schema("postgresql+psycopg://u:p@db.example.com:5432/line1thon_ci", {"CI": "true"}, factory)
 
     assert factory.calls == []
+
+
+# ---- 쿼리 문자열의 접속 대상 키 (T-101 reviewer 권고 1) ---------------------------------------
+# `url.host`가 localhost여도 SQLAlchemy psycopg 방언은 쿼리 `host`로 덮어쓰고, `hostaddr`·`service`·`dbname`은
+# 그대로 libpq 접속 인자로 넘긴다 — 호스트·DB 이름 검사를 우회해 다른 DB에 닿을 수 있으므로 거부한다.
+
+QUERY_TARGET_BYPASS_URLS = [
+    f"{LOCAL_CI_URL}?host=prod.example.com",
+    f"{LOCAL_CI_URL}?hostaddr=203.0.113.5",
+    f"{LOCAL_CI_URL}?service=prod",
+    f"{LOCAL_CI_URL}?servicefile=/tmp/pg_service.conf",
+    f"{LOCAL_CI_URL}?dbname=neondb",
+    f"{LOCAL_CI_URL}?sslmode=disable&HOST=prod.example.com",  # 대소문자 무관
+    f"{LOCAL_CI_URL}?host=localhost",  # 값이 로컬이어도 쿼리 접속 대상 키 자체를 거부
+]
+
+
+@pytest.mark.parametrize("url", QUERY_TARGET_BYPASS_URLS)
+def test_url_with_query_connection_target_fails(url):
+    kind, message = _outcome({URL_ENV: url, REQUIRE_ENV: "1"})
+
+    assert kind == "fail"
+    assert "쿼리" in message
+
+
+@pytest.mark.parametrize("url", QUERY_TARGET_BYPASS_URLS)
+def test_reset_with_query_connection_target_is_refused_without_connecting(url):
+    factory = RecordingFactory()
+
+    with pytest.raises(pytest.fail.Exception, match="쿼리"):
+        reset_public_schema(url, {"CI": "true"}, engine_factory=factory)
+
+    assert factory.calls == []
+    assert factory.engine.statements == []
+
+
+def test_url_with_unrelated_query_options_is_accepted():
+    # 접속 대상과 무관한 옵션까지 막지는 않는다 (과잉 차단 방지)
+    url = f"{LOCAL_CI_URL}?sslmode=disable&connect_timeout=5"
+    factory = RecordingFactory()
+
+    assert _outcome({URL_ENV: url}) == ("url", url)
+    reset_public_schema(url, {"CI": "true"}, engine_factory=factory)
+    assert factory.calls == [url]

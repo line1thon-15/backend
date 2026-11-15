@@ -1,6 +1,12 @@
 """PostgreSQL 통합 테스트 접속 URL 결정·스키마 초기화 안전장치 (T-99 ⑧ → T-101 ①②).
 
 `test_postgres_constraints.py`의 fixture가 쓴다. 실제 PostgreSQL 없이 단위 검증한다(`test_postgres_guard.py`).
+
+이 가드는 실수 방지용이지 완전 차단이 아니다 (팀 리뷰 P3). SSH 터널 등으로 `localhost`에 붙은 운영 DB가 허용 접미사
+(`_ci`·`_test`)로 끝나는 이름이고 `CI=true`까지 맞으면 통과한다. 그래서 운용 규칙을 함께 지킨다:
+- 스키마 삭제(`DROP SCHEMA public CASCADE`) 테스트는 일회용 CI PostgreSQL 컨테이너 — `.github/workflows/ci.yml`
+  job `pytest-postgres`의 `postgres` 서비스(전용 계정 `ci`, DB `line1thon_ci`) — 에서만 실행한다.
+- 운영·공유 DB URL을 `TEST_POSTGRES_URL`에 넣지 않는다.
 """
 
 from collections.abc import Callable, Mapping
@@ -15,6 +21,10 @@ ALLOWED_HOSTS = {"localhost", "127.0.0.1"}
 # 일회용 DB 이름 접미사 — CI 서비스 컨테이너 DB는 `line1thon_ci`(.github/workflows/ci.yml)
 DISPOSABLE_DB_SUFFIXES = ("_ci", "_test")
 TRUTHY = {"1", "true", "yes"}
+# URL 쿼리로 넘어가면 libpq 접속 대상을 바꾸는 키 (T-101 reviewer 권고 1). SQLAlchemy psycopg 방언은 쿼리 `host`로
+# URL 호스트를 덮어쓰고 나머지는 그대로 접속 인자로 넘긴다 — 호스트·DB 이름 검사를 우회하므로 값과 무관하게 거부한다.
+# service·servicefile: 서비스 파일 항목이 host·dbname을 정한다. dbname: URL 경로의 DB 이름 대신 쓰인다.
+QUERY_TARGET_KEYS = {"host", "hostaddr", "service", "servicefile", "dbname"}
 
 
 def _flag(environ: Mapping[str, str], name: str) -> bool:
@@ -28,6 +38,12 @@ def checked_postgres_url(raw: str) -> str:
         pytest.fail(f"{URL_ENV}는 postgresql URL이어야 한다", pytrace=False)
     if url.host not in ALLOWED_HOSTS:
         pytest.fail(f"{URL_ENV} 호스트는 localhost·127.0.0.1만 허용 (운영·외부 DB 보호)", pytrace=False)
+    target_keys = sorted(key for key in url.query if key.lower() in QUERY_TARGET_KEYS)
+    if target_keys:
+        pytest.fail(
+            f"{URL_ENV} 쿼리에 접속 대상을 바꾸는 키({', '.join(target_keys)})를 쓸 수 없다 (호스트·DB 이름 검사 우회 방지)",
+            pytrace=False,
+        )
     return raw
 
 
@@ -46,9 +62,13 @@ def resolve_postgres_url(environ: Mapping[str, str]) -> str:
 
 
 def check_schema_reset_allowed(raw: str, environ: Mapping[str, str]) -> None:
-    """`DROP SCHEMA public CASCADE` 전 확인: 로컬 호스트 + 일회용 DB 이름 + CI 환경. 어긋나면 pytest 실패.
+    """`DROP SCHEMA public CASCADE` 전 확인: 로컬 호스트(쿼리 접속 대상 키 없음) + 일회용 DB 이름 + CI 환경.
+    어긋나면 pytest 실패.
 
-    호스트 검사만으로는 SSH 터널 등으로 localhost에 붙은 운영 DB를 막지 못한다(T-99 리뷰 권고 B).
+    호스트 검사만으로는 SSH 터널 등으로 localhost에 붙은 운영 DB를 막지 못한다(T-99 리뷰 권고 B) — DB 이름·CI 확인을
+    더했지만 이것도 실수 방지용이지 완전 차단이 아니다(팀 리뷰 P3): 터널 너머 운영 DB 이름이 `_ci`·`_test`로 끝나고
+    `CI=true`면 통과한다. 이 확인을 거치는 테스트는 일회용 CI PostgreSQL 컨테이너(ci.yml `pytest-postgres`의
+    `postgres` 서비스, 전용 계정 `ci`)에서만 실행하고, 운영·공유 DB URL을 `TEST_POSTGRES_URL`에 넣지 않는다.
     """
     url = make_url(checked_postgres_url(raw))
     if not (url.database or "").endswith(DISPOSABLE_DB_SUFFIXES):
@@ -61,7 +81,11 @@ def check_schema_reset_allowed(raw: str, environ: Mapping[str, str]) -> None:
 
 
 def reset_public_schema(raw: str, environ: Mapping[str, str], engine_factory: Callable = create_engine):
-    """확인을 통과한 경우에만 엔진을 만들고 public 스키마를 비운다. 확인 실패 시 연결도 하지 않는다."""
+    """확인을 통과한 경우에만 엔진을 만들고 public 스키마를 비운다. 확인 실패 시 연결도 하지 않는다.
+
+    확인은 실수 방지용이다(`check_schema_reset_allowed` 참조) — 일회용 CI PostgreSQL 컨테이너(ci.yml `pytest-postgres`의
+    `postgres` 서비스, 전용 계정 `ci`)에서만 호출되게 하고, 운영·공유 DB URL을 `TEST_POSTGRES_URL`에 넣지 않는다.
+    """
     check_schema_reset_allowed(raw, environ)
     engine = engine_factory(raw)
     with engine.begin() as conn:
