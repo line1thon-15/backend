@@ -8,6 +8,7 @@
   job `pytest-postgres`의 `postgres` 서비스(전용 계정 `ci`, DB `line1thon_ci`) — 에서만 실행한다.
 - 운영·공유 DB URL을 `TEST_POSTGRES_URL`에 넣지 않는다.
 - libpq 서비스 환경 변수 `PGSERVICE`·`PGSERVICEFILE`이 비어 있지 않게 설정된 실행은 URL 확정·스키마 삭제 전에 중단한다.
+- libpq 환경 변수 `PGHOSTADDR`·`PGPORT`도 같다 — URL에 없는 hostaddr·포트를 채워 호스트 검사를 우회한다.
 """
 
 from collections.abc import Callable, Mapping
@@ -28,8 +29,11 @@ TRUTHY = {"1", "true", "yes"}
 # port·user·passfile·options(T-101 재리뷰 권고 2): 같은 localhost의 다른 터널 포트·다른 계정·비밀번호 파일·
 # 서버 설정(search_path 등)으로 향하게 한다.
 QUERY_TARGET_KEYS = {"host", "hostaddr", "service", "servicefile", "dbname", "port", "user", "passfile", "options"}
-# URL 밖(환경 변수)에서 서비스 파일 항목으로 libpq 접속 인자를 채우는 변수 — 사용자 지시 원문 "PGSERVICE도 T-101에서 막아"
-SERVICE_ENV_VARS = ("PGSERVICE", "PGSERVICEFILE")
+# URL 밖(환경 변수)에서 libpq 접속 대상을 바꾸는 변수.
+# PGSERVICE·PGSERVICEFILE: 서비스 파일 항목이 접속 인자를 채운다 — 사용자 지시 원문 "PGSERVICE도 T-101에서 막아".
+# PGHOSTADDR·PGPORT: URL이 hostaddr를 넘기지 않으므로 PGHOSTADDR가 실제 TCP 주소를 정하고, 포트 없는 URL에는 PGPORT가
+# 적용된다 — 사용자 결정 원문 "둘 다 막기". PGHOST·PGDATABASE·PGUSER는 URL 명시값이 우선하므로 막지 않는다.
+LIBPQ_TARGET_ENV_VARS = ("PGSERVICE", "PGSERVICEFILE", "PGHOSTADDR", "PGPORT")
 
 
 def _flag(environ: Mapping[str, str], name: str) -> bool:
@@ -52,15 +56,15 @@ def checked_postgres_url(raw: str) -> str:
     return raw
 
 
-def check_no_service_env(environ: Mapping[str, str]) -> None:
-    """`PGSERVICE`·`PGSERVICEFILE`이 비어 있지 않게 설정돼 있으면 pytest 실패(엔진 생성 전).
+def check_no_libpq_target_env(environ: Mapping[str, str]) -> None:
+    """`PGSERVICE`·`PGSERVICEFILE`·`PGHOSTADDR`·`PGPORT`가 비어 있지 않게 설정돼 있으면 pytest 실패(엔진 생성 전).
 
-    빈 문자열("")만 미설정으로 본다 — 공백만 있어도 libpq는 그 이름으로 서비스를 찾으므로 막는다.
+    빈 문자열("")만 미설정으로 본다 — 공백만 있어도 libpq는 그 값을 쓰려 하므로 막는다.
     """
-    present = [name for name in SERVICE_ENV_VARS if environ.get(name, "") != ""]
+    present = [name for name in LIBPQ_TARGET_ENV_VARS if environ.get(name, "") != ""]
     if present:
         pytest.fail(
-            f"libpq 서비스 환경 변수({', '.join(present)})가 설정된 실행에서는 PostgreSQL 테스트를 하지 않는다 "
+            f"libpq 접속 대상 환경 변수({', '.join(present)})가 설정된 실행에서는 PostgreSQL 테스트를 하지 않는다 "
             "(URL 밖에서 접속 인자를 채우는 경로 차단)",
             pytrace=False,
         )
@@ -77,20 +81,20 @@ def resolve_postgres_url(environ: Mapping[str, str]) -> str:
         if _flag(environ, REQUIRE_ENV):
             pytest.fail(f"{URL_ENV} 미설정 — {REQUIRE_ENV}가 켜진 실행에서는 skip하지 않는다", pytrace=False)
         pytest.skip(f"{URL_ENV} 미설정")
-    check_no_service_env(environ)
+    check_no_libpq_target_env(environ)
     return checked_postgres_url(raw)
 
 
 def check_schema_reset_allowed(raw: str, environ: Mapping[str, str]) -> None:
     """`DROP SCHEMA public CASCADE` 전 확인: 로컬 호스트(쿼리 접속 대상 키 없음) + 일회용 DB 이름 + CI 환경
-    + `PGSERVICE`·`PGSERVICEFILE` 미설정. 어긋나면 pytest 실패.
+    + `PGSERVICE`·`PGSERVICEFILE`·`PGHOSTADDR`·`PGPORT` 미설정. 어긋나면 pytest 실패.
 
     호스트 검사만으로는 SSH 터널 등으로 localhost에 붙은 운영 DB를 막지 못한다(T-99 리뷰 권고 B) — DB 이름·CI 확인을
     더했지만 이것도 실수 방지용이지 완전 차단이 아니다(팀 리뷰 P3): 터널 너머 운영 DB 이름이 `_ci`·`_test`로 끝나고
     `CI=true`면 통과한다. 이 확인을 거치는 테스트는 일회용 CI PostgreSQL 컨테이너(ci.yml `pytest-postgres`의
     `postgres` 서비스, 전용 계정 `ci`)에서만 실행하고, 운영·공유 DB URL을 `TEST_POSTGRES_URL`에 넣지 않는다.
     """
-    check_no_service_env(environ)
+    check_no_libpq_target_env(environ)
     url = make_url(checked_postgres_url(raw))
     if not (url.database or "").endswith(DISPOSABLE_DB_SUFFIXES):
         pytest.fail(

@@ -301,9 +301,53 @@ def test_empty_service_env_is_not_refused():
     assert factory.calls == [LOCAL_CI_URL]
 
 
+# PGHOSTADDR·PGPORT (사용자 결정 원문 "둘 다 막기"): URL에 hostaddr가 없으면 libpq가 PGHOSTADDR로 채워 실제 TCP 주소가
+# 바뀌고, 포트 없는 URL에는 PGPORT가 적용된다 — URL 호스트 검사를 우회하므로 서비스 변수와 같이 엔진 생성 전에 중단한다.
+ADDR_PORT_ENV_CASES = [
+    {"PGHOSTADDR": "203.0.113.5"},
+    {"PGPORT": "6543"},
+    {"PGHOSTADDR": "127.0.0.1", "PGPORT": "5432"},  # 값이 로컬이어도 설정 자체를 거부
+    {"PGPORT": " "},
+]
+
+
+@pytest.mark.parametrize("target_env", ADDR_PORT_ENV_CASES)
+def test_url_with_libpq_hostaddr_or_port_env_fails(target_env):
+    kind, message = _outcome({URL_ENV: LOCAL_CI_URL, REQUIRE_ENV: "1", **target_env})
+
+    assert kind == "fail"
+    assert all(name in message for name in target_env), message
+
+
+@pytest.mark.parametrize("target_env", ADDR_PORT_ENV_CASES)
+def test_reset_with_libpq_hostaddr_or_port_env_is_refused_without_connecting(target_env):
+    factory = RecordingFactory()
+
+    with pytest.raises(pytest.fail.Exception) as exc_info:
+        reset_public_schema(LOCAL_CI_URL, {"CI": "true", **target_env}, engine_factory=factory)
+
+    assert all(name in str(exc_info.value) for name in target_env)
+    assert factory.calls == []
+    assert factory.engine.statements == []
+
+
+def test_url_missing_locally_still_skips_with_hostaddr_port_env():
+    assert _outcome({"PGHOSTADDR": "203.0.113.5", "PGPORT": "6543"}) == ("skip", f"{URL_ENV} 미설정")
+
+
+def test_empty_hostaddr_port_env_is_not_refused():
+    environ = {"CI": "true", "PGHOSTADDR": "", "PGPORT": ""}
+    factory = RecordingFactory()
+
+    assert _outcome({URL_ENV: LOCAL_CI_URL, **environ}) == ("url", LOCAL_CI_URL)
+    reset_public_schema(LOCAL_CI_URL, environ, engine_factory=factory)
+    assert factory.calls == [LOCAL_CI_URL]
+
+
 def test_other_libpq_env_is_not_refused():
-    # 사용자 지시 범위 밖 — PGHOST 등은 막지 않는다 (URL에 명시한 값이 우선하는지는 보고서에 따로 기록)
-    environ = {"CI": "true", "PGHOST": "prod.example.com", "PGDATABASE": "neondb", "PGPORT": "6543"}
+    # 사용자 결정 범위 밖 — URL에 명시한 host·dbname·user가 우선하는 변수는 막지 않는다
+    # (PGPORT는 "둘 다 막기" 결정으로 이 목록에서 빠져 위 차단 테스트로 옮겼다)
+    environ = {"CI": "true", "PGHOST": "prod.example.com", "PGDATABASE": "neondb", "PGUSER": "admin"}
     factory = RecordingFactory()
 
     assert _outcome({URL_ENV: LOCAL_CI_URL, **environ}) == ("url", LOCAL_CI_URL)
