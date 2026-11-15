@@ -5,8 +5,14 @@ from sqlalchemy import Engine, MetaData, Table, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import AuthSession, Child, Guardian
-from app.services.ports import ChildLoginCredentials, GuardianCredentials
+from app.db.models import AuthSession, Child, ChildSettings, Guardian
+from app.services.ports import (
+    ChildIdentity,
+    ChildLoginCredentials,
+    CurrentIdentity,
+    GuardianCredentials,
+    GuardianIdentity,
+)
 
 
 class SqlAlchemyAuthRepository:
@@ -110,6 +116,47 @@ class SqlAlchemyAuthRepository:
         )
         with self._session_factory() as session:
             return session.scalar(query)
+
+    def find_current_user_for_active_session(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> CurrentIdentity | None:
+        query = select(AuthSession).where(
+            AuthSession.token_hash == token_hash,
+            AuthSession.expires_at > now,
+            AuthSession.revoked_at.is_(None),
+        )
+        with self._session_factory() as session:
+            auth_session = session.scalar(query)
+            if auth_session is None:
+                return None
+
+            if auth_session.subject_type == "guardian":
+                guardian = session.get(Guardian, auth_session.subject_id)
+                if guardian is None:
+                    return None
+                return GuardianIdentity(
+                    guardian_id=guardian.id,
+                    email=guardian.email,
+                )
+
+            if auth_session.subject_type != "child":
+                return None
+
+            child = session.get(Child, auth_session.subject_id)
+            if child is None:
+                return None
+            settings = session.get(ChildSettings, child.id)
+
+            return ChildIdentity(
+                nickname=child.nickname,
+                grade=child.grade,
+                onboarding_completed=child.onboarding_completed_at is not None,
+                font_scale=settings.font_scale if settings is not None else "normal",
+                high_contrast=settings.high_contrast if settings is not None else False,
+                tts_enabled=settings.tts_enabled if settings is not None else False,
+            )
 
     def find_child_by_link_code(
         self,
