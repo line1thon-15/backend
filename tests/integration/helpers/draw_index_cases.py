@@ -35,16 +35,19 @@ ROWS = [
 RENUMBERED = sum(1 for _id, _c, _o, before, _m, after in ROWS if before != after)
 
 
-def insert_duplicate_rows(engine: Engine) -> None:
-    """인덱스가 없는 리비전(20261112_05) 상태의 DB에 중복 순번 행을 넣는다. 아이 행은 넣지 않으므로
-    외래 키 검사가 꺼져 있어야 한다(SQLite 기본) — PostgreSQL은 호출 전에 아이 행을 넣는다(`insert_children`)."""
+def insert_duplicate_rows(engine: Engine, children: dict[UUID, UUID] | None = None) -> None:
+    """인덱스가 없는 리비전(20261112_05) 상태의 DB에 중복 순번 행을 넣는다.
+
+    `children`을 주지 않으면 아이 행 없이 CHILD_A·CHILD_B를 그대로 쓴다 — 외래 키 검사가 꺼진 SQLite 기본 연결 전용.
+    PostgreSQL은 외래 키를 검사하므로 실제로 만든 아이 ID로 바꿔 넣는다(`{CHILD_A: 실제 ID, CHILD_B: 실제 ID}`)."""
+    children = children or {}
     table = Base.metadata.tables["practice_sessions"]
     with engine.begin() as conn:
         for row_id, child_id, origin, draw_index, minutes, _expected in ROWS:
             conn.execute(
                 table.insert().values(
                     id=UUID(int=row_id),
-                    child_id=child_id,
+                    child_id=children.get(child_id, child_id),
                     mode="area" if draw_index is not None else "retry",
                     area="scam",
                     subtype=None,
