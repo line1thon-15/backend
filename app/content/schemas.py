@@ -36,6 +36,16 @@ class AiClue(_AiModel):
     name: str
     description: str
     safe_action: str
+    # 결과 화면 칩 한 줄 팁 — 필수, 공백만이면 시작 실패. 길이는 검사하지 않는다(AI 콘텐츠 소유자 몫)
+    # 값은 고치지 않고 그대로 둔다(N-12). DECISIONS #147, T-102
+    tip: str
+
+    @field_validator("tip")
+    @classmethod
+    def _tip_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("tip must not be blank")
+        return value
 
 
 class AiCluesFile(_AiModel):

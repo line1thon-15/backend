@@ -1,5 +1,5 @@
 """연습 세션 API A15·A16·A17 (T-15)·A18과 A15 다시 도전 (T-16) — Architecture "API 규격",
-"응답 DTO" PracticeSessionView·TurnView·CueCard·PracticeResultView.
+"응답 DTO" PracticeSessionView·TurnView·ResultCueCard·PracticeResultView (T-102 tip·result·closing_line).
 
 아이 API는 경로·본문으로 아이 ID를 받지 않는다 — 주체는 세션 쿠키에서만 꺼낸다.
 공개 응답에는 선택지 `kind`·`is_terminal`·단서 ID가 없다. 결과 `cards[]`에도 단서 ID가 없다(#75 ②).
@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import require_child_role
-from app.services.practice import PracticeService, ResultOutput, SessionOutput
+from app.services.practice import CueCardOutput, PracticeService, ResultOutput, SessionOutput
 
 router = APIRouter()
 
@@ -87,12 +87,15 @@ class PracticeSessionView(BaseModel):
     turn: TurnView | None
 
 
-class CueCardView(BaseModel):
+class ResultCueCardView(BaseModel):
+    """A18 found·missed 칩 = CueCard + tip (T-102, DECISIONS #143). A19 CueCard는 바꾸지 않는다."""
+
     model_config = ConfigDict(extra="forbid")
 
     cue_id: str
     label: str
     sentence: str
+    tip: str
 
 
 class ResultCardView(BaseModel):
@@ -100,27 +103,35 @@ class ResultCardView(BaseModel):
 
     level: Literal["red", "yellow", "green"]
     sentence: str
+    # 키는 항상 있다 — 마지막 마무리 카드는 null (DECISIONS #144)
+    result: Literal["found", "missed"] | None
 
 
 class PracticeResultView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: UUID
-    found: list[CueCardView]
-    missed: list[CueCardView]
+    found: list[ResultCueCardView]
+    missed: list[ResultCueCardView]
     normal_outcome: Literal["trusted_correctly", "over_warned"] | None
     cards: list[ResultCardView]
     can_retry: bool
+    closing_line: str  # = cards 마지막 카드 sentence (DECISIONS #145)
+
+
+def _result_cue_card(card: CueCardOutput) -> ResultCueCardView:
+    return ResultCueCardView(cue_id=card.cue_id, label=card.label, sentence=card.sentence, tip=card.tip)
 
 
 def _result_view(output: ResultOutput) -> PracticeResultView:
     return PracticeResultView(
         session_id=output.session_id,
-        found=[CueCardView(cue_id=c.cue_id, label=c.label, sentence=c.sentence) for c in output.found],
-        missed=[CueCardView(cue_id=c.cue_id, label=c.label, sentence=c.sentence) for c in output.missed],
+        found=[_result_cue_card(c) for c in output.found],
+        missed=[_result_cue_card(c) for c in output.missed],
         normal_outcome=output.normal_outcome,
-        cards=[ResultCardView(level=card.level, sentence=card.sentence) for card in output.cards],
+        cards=[ResultCardView(level=card.level, sentence=card.sentence, result=card.result) for card in output.cards],
         can_retry=output.can_retry,
+        closing_line=output.closing_line,
     )
 
 

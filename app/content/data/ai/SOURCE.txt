@@ -2,25 +2,26 @@ AI 콘텐츠 읽기 전용 사본 — 직접 수정 금지. AI 콘텐츠가 바�
 
 원본 저장소: line1thon-15/ai
 브랜치: dev
-고정 커밋: 8d900d1bb7167d71f06329dc0a00aab4fef2ebd0 (8d900d1 — ai PR #2 병합 커밋 "Merge pull request #2 from line1thon-15/feature/ai-t29")
+고정 커밋: 25a3ef4f5d87d4d30fce561ee34f586407642ac6 (25a3ef4 — ai PR #6 병합 커밋 "Merge pull request #6 from line1thon-15/feature/result-short")
 원본 경로 → 사본 경로:
   content/clues.json                       → app/content/data/ai/clues.json
   content/scenarios/scam.json              → app/content/data/ai/scenarios/scam.json
   content/scenarios/identity_lending.json  → app/content/data/ai/scenarios/identity_lending.json
   content/scenarios/friend_pressure.json   → app/content/data/ai/scenarios/friend_pressure.json
   (고정 커밋의 content/scenarios/ 3개 전부. content/diagnosis.json·safety_cases.json·safety_messages.json 은 복사 대상 아님 — T-87 완료 조건 ①, T-30 지시 범위 clues.json·scenarios/*.json)
-복사일: 2026-11-15 (T-30 — `git show 8d900d1:<원본 경로>`로 꺼냄, 작업 트리 파일 복사 아님)
-이전 고정: feature/ai 331d2c63481ea212105c466caba86a28acd9dea7 (331d2c6, 2026-11-11 T-87 — scam.json 1개, 사기 시나리오 2개)
-고정 근거: docs/Tasks.md T-30 — ai PR #2 병합으로 ai dev 8d900d1에 scam 4·identity_lending 4·friend_pressure 4 시나리오
+복사일: 2026-11-15 (T-102 — `git -C <ai 로컬 저장소> show 25a3ef4:<원본 경로> > <사본 경로>`로 꺼냄, 작업 트리 파일 복사 아님. 4개 통째로)
+이전 고정: dev 8d900d1bb7167d71f06329dc0a00aab4fef2ebd0 (8d900d1, 2026-11-15 T-30 — ai PR #2 병합 커밋)
+그 이전 고정: feature/ai 331d2c63481ea212105c466caba86a28acd9dea7 (331d2c6, 2026-11-11 T-87 — scam.json 1개, 사기 시나리오 2개)
+고정 근거: docs/DECISIONS.md #147·#149, docs/Tasks.md T-102 ② — ai dev 25a3ef4의 clues.json 단서마다 `tip` 추가(AiClue.tip 필수). 8d900d1 대비 실제 바뀐 파일은 clues.json뿐(`tip`·`choice_templates_casual` 추가), scenarios/*.json 3개는 blob 동일
 
-SHA-256 (LF 기준 = git blob 내용, `git show 8d900d1:<원본 경로> | sha256sum`. 복사 직후 원본과 cmp 일치 확인):
-b537704dfca556b3cd50b0c2572aaf1f65ff01144f729c1a8196eab50fea55d9 *clues.json
+SHA-256 (LF 기준 = git blob 내용, `git show 25a3ef4:<원본 경로> | sha256sum`. 복사 직후 사본과 일치, `git hash-object --no-filters <사본>` = 25a3ef4 blob id 확인):
+1dbcc6a3afa370fa217c91699e54a84e7e702016a66a60ca7f42657dd6438e94 *clues.json
 552b5841fc803dc0b29c579eab89f9a8a99b32fba0b1587615bfb2fa145cdb49 *scenarios/scam.json
 02f4d8e6891f31fa6b1ceb2076af712379190f4d8a865546dcc5c0f2fd3196ef *scenarios/identity_lending.json
 94edc975d41375618dc7003a77b94f45f30cf6ac5ef1a9b311573cce409632db *scenarios/friend_pressure.json
 
 참고 — Windows 체크아웃(core.autocrlf=true, CRLF) 작업 트리 파일의 SHA-256 (LF→CRLF 변환 계산값):
-da442d685b546793e7a1e82151e4ec5c756d748e54fff56cae504b09570aa85f *clues.json
+ce09aa13fd52458cf074cdd012dfab823f8c954830f1cc5bec28119cc7e4b67f *clues.json
 8ce8da7e96c773b73958b72bf16261d7c6bb4f21b07fd910ae289d663a0fe31c *scenarios/scam.json
 cd147368e29f4c4aea74a512d0d383fc6dbd36ac79f04c8a1766d49594faaf3c *scenarios/identity_lending.json
 a2e63bd0b7bfaae919e8aa5cedbbaccf577e6c728ec66673446688b90e23ab9e *scenarios/friend_pressure.json

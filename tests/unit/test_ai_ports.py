@@ -1,6 +1,6 @@
 """AI 포트·DTO = AI 계약 v1 (Architecture "1차 내부 API v1", DECISIONS #96·#97·#104·#112·#115, ADR-0017, Tasks T-86).
 
-계약 샘플은 tests/contracts/ai/ — ai 저장소 dev 8d900d1 contracts/*.json 사본(SOURCE.txt, T-100 재고정).
+계약 샘플은 tests/contracts/ai/ — ai 저장소 dev 25a3ef4 contracts/*.json 사본(SOURCE.txt, T-102 재고정 — 이전 8d900d1·T-100).
 응답 검증 규칙(VA·ST·TU·J'·V'·S)은 범위 밖(T-15·T-16·T-76) — 여기서는 필드·타입만 본다.
 """
 
@@ -51,7 +51,7 @@ SAMPLE_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
-# 계약 샘플(ai 8d900d1)에는 있지만 백엔드 모델이 아직 채택하지 않은 최상위 필드 — 파일별로 좁게 둔다.
+# 계약 샘플(ai 25a3ef4)에는 있지만 백엔드 모델이 아직 채택하지 않은 최상위 필드 — 파일별로 좁게 둔다.
 # T-100 사용자 결정 원문 "A: 미사용 필드로 명시". 해당 작업이 필드를 채택하면 여기서 지운다.
 UNADOPTED_FIELDS: dict[str, frozenset[str]] = {
     "practice.start.response.json": frozenset({"hint"}),  # 채택: T-37·T-74 (힌트)
@@ -89,10 +89,11 @@ def test_contract_dir_has_exactly_the_12_pinned_samples():
 def test_contract_source_records_pinned_commit():
     source = (CONTRACT_DIR / "SOURCE.txt").read_text(encoding="utf-8")
 
-    # T-100 재고정 (DECISIONS #139 3A): ai dev 8d900d1 — 콘텐츠 사본과 같은 커밋
+    # T-102 재고정 (DECISIONS #149): ai dev 25a3ef4 — 콘텐츠 사본과 같은 커밋 (이전 고정 8d900d1, T-100)
     assert "line1thon-15/ai" in source
     assert "브랜치: dev" in source
-    assert "고정 커밋: 8d900d1" in source
+    assert "고정 커밋: 25a3ef4f5d87d4d30fce561ee34f586407642ac6" in source
+    assert "이전 고정: dev 8d900d1" in source
 
 
 @pytest.mark.parametrize("name", sorted(SAMPLE_MODELS))
